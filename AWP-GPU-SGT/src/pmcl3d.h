@@ -41,7 +41,8 @@ void command(int argc, char **argv,
              float *FL, float *FH, float *FP, int *IDYNA, int *SoCalQ,
              char  *INSRC,  char *INVEL, char *OUT,
              char  *CHKFILE,
-             int *IGREEN, int *NTISKP_SGT, char  *INSGT);
+             int *IGREEN, int *NTISKP_SGT, char  *INSGT,
+             double *QPIN, double *QSIN);
 
 int inisource(int      rank,    int     IFAULT, int     NSRC,   int     READ_STEP, 
               int     NST,     int     *SRCPROC, int    NZ,
@@ -58,13 +59,13 @@ void addsrc(int i,      float DH,   float DT,   int NST,    int npsrc,  int READ
 void inimesh(int MEDIASTART, Grid3D d1, Grid3D mu, Grid3D lam, Grid3D qp, Grid3D qs, float *taumax, float *taumin,
              int nvar, float FP,  float FL, float FH, int nxt, int nyt, int nzt, int PX, int PY, int NX, int NY,
              int NZ, int *coords, MPI_Comm MCW, int IDYNA, int NVE, int SoCalQ, char *INVEL,
-             float *vse, float *vpe, float *dde);
+             float *vse, float *vpe, float *dde, double QPIN, double QSIN);
 
 int writeCHK(char *chkfile, int ntiskp, float dt, float dh, 
       int nxt, int nyt, int nzt,
       int nt, float arbc, int npc, int nve,
       float fl, float fh, float fp, 
-      float *vse, float *vpe, float *dde);
+      float *vse, float *vpe, float *dde, double qpscale, double qsscale);
 
 void mediaswap(Grid3D d1, Grid3D mu,     Grid3D lam,    Grid3D qp,     Grid3D qs,
                int rank,  int x_rank_L,  int x_rank_R,  int y_rank_F,  int y_rank_B,

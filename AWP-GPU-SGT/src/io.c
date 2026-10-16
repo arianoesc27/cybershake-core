@@ -8,7 +8,7 @@ int writeCHK(char *chkfile, int ntiskp, float dt, float dh,
       int nxt, int nyt, int nzt,
       int nt, float arbc, int npc, int nve,
       float fl, float fh, float fp, 
-      float *vse, float *vpe, float *dde){
+      float *vse, float *vpe, float *dde, double qpscale, double qsscale){
 
   FILE *fchk;
 
@@ -29,6 +29,9 @@ int writeCHK(char *chkfile, int ntiskp, float dt, float dh,
   fprintf(fchk,"ABC CONDITION, PML=1 OR CERJAN=0:\t%d\n",npc);
   fprintf(fchk,"FD SCHEME, VISCO=1 OR ELASTIC=0:\t%d\n",nve);
   fprintf(fchk,"Q, FL,FP,FH:\t%f, %f, %f\n",fl,fp,fh);
+  //AR: (2026-10-14) The attenuation fractions this run used, see def_QSIN in command.c
+  fprintf(fchk,"Q interpretation:\tQs=QSIN*Vs, Qp=QPIN*Qs\n");
+  fprintf(fchk,"QPIN/QSIN:\t%f,\t%f\n", qpscale, qsscale);
   fclose(fchk);
 
 return 0;

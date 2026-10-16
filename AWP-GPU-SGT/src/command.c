@@ -103,6 +103,16 @@ const float def_FL         = 0.005;
 const float def_FH         = 5.0;
 const float def_FP         = 2.5;
 
+//AR: (2026-10-14) Attenuation of a mesh of three variables, Qs = QSIN * Vs (Vs in m/s) and
+//AR: Qp = QPIN * Qs. These two numbers were written in mesh.c as 0.05 and 2.0. They are now
+//AR: arguments, --QSIN and --QPIN, with those same values as defaults, so a run that does not
+//AR: give them is unchanged. Same names and defaults as in the forward version of AWP-ODC
+//AR: (github.com/arianoesc27/awp-odc-os), of which this keeps only the scale case.
+//AR: They are double so that the default reproduces the old arithmetic bit for bit, the
+//AR: literal 0.05 in mesh.c was a double.
+const double def_QSIN      = 0.05;
+const double def_QPIN      = 2.0;
+
 const char  def_INSRC[50]  = "input/FAULTPOW";
 const char  def_INVEL[50]  = "input/media";
 
@@ -125,7 +135,8 @@ void command(int argc,    char **argv,
              int *NBGZ,   int *NEDZ,       int *NSKPZ, 
              float *FL,   float *FH,       float *FP,   int *IDYNA,     int *SoCalQ,
              char *INSRC, char *INVEL,     char *OUT,   char *CHKFILE,
-             int *IGREEN, int *NTISKP_SGT, char *INSGT)
+             int *IGREEN, int *NTISKP_SGT, char *INSGT,
+             double *QPIN, double *QSIN)
 {
 
    // Fill in default values
@@ -171,6 +182,8 @@ void command(int argc,    char **argv,
    *FL         = def_FL;
    *FH         = def_FH;
    *FP         = def_FP;
+   *QPIN       = def_QPIN;   //AR: see def_QSIN
+   *QSIN       = def_QSIN;
 
     strcpy(INSRC, def_INSRC);
     strcpy(INVEL, def_INVEL);
@@ -227,6 +240,8 @@ void command(int argc,    char **argv,
         {"IGREEN", required_argument, NULL, 'G'},
         {"NTISKP_SGT", required_argument, NULL, 200},
         {"INSGT", required_argument, NULL, 201},
+        {"QPIN", required_argument, NULL, 1001},   //AR: see def_QSIN
+        {"QSIN", required_argument, NULL, 1002},
     };
 
     // If IFAULT=1 and READ_STEP_GPU is not set, it should be = READ_STEP
@@ -322,6 +337,10 @@ void command(int argc,    char **argv,
                 *NTISKP_SGT = atoi(optarg); break;
             case 201:
                 strcpy(INSGT, optarg); break;
+            case 1001:
+                *QPIN       = atof(optarg); break;   //AR: see def_QSIN
+            case 1002:
+                *QSIN       = atof(optarg); break;
             default:
                 printf("Usage: %s \nOptions:\n\t[(-T | --TMAX) <TMAX>]\n\t[(-H | --DH) <DH>]\n\t[(-t | --DT) <DT>]\n\t[(-A | --ARBC) <ARBC>]\n\t[(-P | --PHT) <PHT>]\n\t[(-M | --NPC) <NPC>]\n\t[(-D | --ND) <ND>]\n\t[(-S | --NSRC) <NSRC>]\n\t[(-N | --NST) <NST>]\n",argv[0]);
                 printf("\n\t[(-V | --NVE) <NVE>]\n\t[(-B | --MEDIASTART) <MEDIASTART>]\n\t[(-n | --NVAR) <NVAR>]\n\t[(-I | --IFAULT) <IFAULT>]\n\t[(-R | --READ_STEP) <x READ_STEP]\n");
@@ -330,6 +349,7 @@ void command(int argc,    char **argv,
                 printf("\n\t[(-i | --IDYNA) <i IDYNA>]\n\t[(-s | --SoCalQ) <s SoCalQ>]\n\t[(-l | --FL) <l FL>]\n\t[(-h | --FH) <i FH>]\n\t[(-p | --FP) <p FP>]\n\t[(-r | --NTISKP) <time skipping in writing>]\n\t[(-W | --WRITE_STEP) <time aggregation in writing>]\n");
                 printf("\n\t[(-100 | --INSRC) <source file>]\n\t[(-101 | --INVEL) <mesh file>]\n\t[(-o | --OUT) <output file>]\n\t[(-c | --CHKFILE) <checkpoint file to write statistics>]\n\n");
                 printf("\n\t[(-G | --IGREEN) <IGREEN for SGT>]\n\t[(-200 | --NTISKP_SGT) <NTISKP for SGT>]\n\t[(-201 | --INSGT) <SGT input file>]\n\n");
+                printf("\n\t[--QSIN <Qs = QSIN * Vs, with NVAR=3 and NVE=1>]\n\t[--QPIN <Qp = QPIN * Qs>]\n\n");   //AR
                 exit(-1);
         }
     }

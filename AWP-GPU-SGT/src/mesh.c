@@ -12,7 +12,7 @@
 void inimesh(int MEDIASTART, Grid3D d1, Grid3D mu, Grid3D lam, Grid3D qp, Grid3D qs, float *taumax, float *taumin,
              int nvar, float FP,  float FL, float FH, int nxt, int nyt, int nzt, int PX, int PY, int NX, int NY,  
              int NZ, int *coords, MPI_Comm MCW, int IDYNA, int NVE, int SoCalQ, char *INVEL, 
-             float *vse, float *vpe, float *dde)
+             float *vse, float *vpe, float *dde, double QPIN, double QSIN)
 {
   int merr;
   int rank;
@@ -164,8 +164,10 @@ void inimesh(int MEDIASTART, Grid3D d1, Grid3D mu, Grid3D lam, Grid3D qp, Grid3D
         for(i=0;i<nxt;i++)
           for(j=0;j<nyt;j++){
             for(k=0;k<nzt;k++){
-                 tmpsq[i][j][k]=0.05*tmpvs[i][j][k];
-                 tmppq[i][j][k]=2.0*tmpsq[i][j][k];
+                 //AR: (2026-10-14) Was 0.05 and 2.0 written here. Now the arguments QSIN and
+                 //AR: QPIN, which default to those values, see command.c.
+                 tmpsq[i][j][k]=QSIN*tmpvs[i][j][k];
+                 tmppq[i][j][k]=QPIN*tmpsq[i][j][k];
                 //Set Qp = 20000 and Qs = 10000 for testing
 				//tmppq[i][j][k] = 20000.0;
                 //tmpsq[i][j][k] = 10000.0;
