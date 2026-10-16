@@ -140,11 +140,28 @@ getpar("sname","s",sname);
 //If we specify target_hypo_spacing, then pass it through to rupgen_genslip
 float target_hypo_spacing = -1.0;
 getpar("target_hypo_spacing", "f", &target_hypo_spacing);
+//AR: "nrup_min" is the minimum number of rupture variations that get generated (genslip
+//AR: itself already had this setting, default 10). DirectSynth just never let you change it
+//AR: before, so I added that. If nothing is given, it stays at -1, which means "use the
+//AR: default", same idea as target_hypo_spacing right above.
+int nrup_min = -1;
+getpar("nrup_min", "d", &nrup_min);
 float rvfrac = -1.0;
-getpar("rvfrac", "f", &rvfrac); 
+getpar("rvfrac", "f", &rvfrac);
+
+//AR: New optional parameter "velfile", the path to a 1D velocity model used to generate the
+//AR: ruptures. If not given, genslip keeps using its own built-in generic model, same as
+//AR: before. I made this buffer 512 bytes, not 256, so it comfortably fits long GPFS paths,
+//AR: since the function that reads it in doesn't check how long the path is.
+char velfile_1d[512];
+velfile_1d[0] = '\0';
+getpar("velfile", "s", velfile_1d);
 
 rg_stats_t stats;
+/* AR: memcached is not available on MN5, so I disable it at compile time with -DBSC_DISABLE_MEMCACHED */
+#ifndef BSC_DISABLE_MEMCACHED
 set_memcached_server("127.0.0.1");
+#endif
 
 char rupture_spacing_string[20];
 int rupture_spacing;
@@ -176,6 +193,17 @@ if (target_hypo_spacing>0.0) {
 		strcat(params, " seed=6000011");
 	}*/
 }
+
+//AR: Same on/off idea as target_hypo_spacing right above, it's only added to the params
+//AR: string genslip receives when a value is given.
+if (nrup_min>=0) {
+	if (params_flag==0) {
+		params_flag = 1;
+		sprintf(params, "nrup_min=%d", nrup_min);
+	} else {
+		sprintf(params, "%s nrup_min=%d", params, nrup_min);
+	}
+}
 #ifndef _V3_3_1
 if (generate_seed==1) {
 	params_flag = 1;
@@ -188,6 +216,24 @@ if (rvfrac>0.0) {
 	params_flag = 1;
 	sprintf(params, "%s rvfrac=%f", params, rvfrac);
 }
+
+//AR: If a velfile was given, I add it here once, before the loop, same as
+//AR: target_hypo_spacing/rvfrac above. It carries through to every rupture-generation call
+//AR: inside the loop since params already includes it.
+if (velfile_1d[0] != '\0') {
+	params_flag = 1;
+	sprintf(params, "%s velfile=%s", params, velfile_1d);
+}
+
+//AR: I added this to time write_srf() on its own, separate from the bigger timer below that
+//AR: times the whole "Generating N variations" loop. I wanted to know if writing each .srf
+//AR: file (about 2.3MB, one per rupture variation) is actually slow. I add up the time for
+//AR: all of them and print ONE number at the end, not one print per file, so I don't slow
+//AR: things down with extra printing.
+struct timeval srf_t0, srf_t1;
+double srf_write_total_sec = 0.0;
+int write_srf_files = 0;
+getpar("write_srf","d",&write_srf_files);
 
 //Generate all ruptures
 for (i=0; i<num_rup_vars; i++) {
@@ -209,14 +255,28 @@ for (i=0; i<num_rup_vars; i++) {
 	} else {
 		rupgen_genslip(rup_geom_file, rup_vars[i].slip_id, rup_vars[i].hypo_id, &stats, &(srf[i]), rupture_spacing, dtout);
 	}
-	/*char srf_out[512];
-	sprintf(srf_out, "%s.%d.srf", rup_geom_file, rup_vars[i].rup_var_id);
-	write_srf(&(srf[i]), srf_out, 0);*/
+	/* AR: (2026-10-01) The .srf file of each variation is written only when asked for with
+	   write_srf=1. SCEC's own code had these lines commented out, I had turned them on for
+	   every run thinking later steps needed the files, but nothing reads them. They take
+	   about 24 MB per variation (430 GB for PAS, about 5 TB for SBSM). The default 0 is
+	   SCEC's behaviour, 1 is useful to check the slip of a variation by hand. */
+	if (write_srf_files) {
+		char srf_out[512];
+		sprintf(srf_out, "%s.%d.srf", rup_geom_file, rup_vars[i].rup_var_id);
+		if (debug) gettimeofday(&srf_t0, NULL);
+		write_srf(&(srf[i]), srf_out, 0);
+		if (debug) {
+			gettimeofday(&srf_t1, NULL);
+			srf_write_total_sec += (srf_t1.tv_sec - srf_t0.tv_sec) + (srf_t1.tv_usec - srf_t0.tv_usec) / 1e6;
+		}
+	}
 }
 if (debug) {
 	gettimeofday(&tv_end, NULL);
 	char buf[256];
-	sprintf(buf, "Generating %d variations took %d sec.\n", num_rup_vars, tv_end.tv_sec - tv_start.tv_sec);
+	double total_sec = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec) / 1e6;
+	sprintf(buf, "Generating %d variations took %.3f sec (of which write_srf: %.3f sec, %.1f%%).\n",
+		num_rup_vars, total_sec, srf_write_total_sec, total_sec > 0 ? 100.0*srf_write_total_sec/total_sec : 0.0);
 	write_log(buf);
 }
 
@@ -262,7 +322,15 @@ int max_points_per_request = MAX_BUFFER_SIZE/(18/3*4*sgtmast.nt*sizeof(float)+si
 int request_from_handler_id = 0;
 int starting_index = 0;
 int ending_index = 0;
-while (num_sgts_by_handler[request_from_handler_id]==0 && request_from_handler_id<num_sgt_handlers) {
+//AR: I found a second copy of the same bug I already fixed a bit further down (see that
+//AR: comment for the full explanation). Here it happens at the very start, before the loop
+//AR: even begins. If a task's points all land on very few handlers, this line could check
+//AR: an array position that doesn't exist yet, before checking if that position is even
+//AR: valid. That could read garbage memory and get things stuck on a wrong handler number.
+//AR: The fix is the same. I check if the position is valid FIRST, then what's in it.
+//AR: I only found this because a run on 4 nodes kept crashing while the exact same run
+//AR: on 1 node never did, even though nothing else about the setup was different.
+while (request_from_handler_id<num_sgt_handlers && num_sgts_by_handler[request_from_handler_id]==0) {
 	request_from_handler_id++;
 }
 
@@ -295,9 +363,18 @@ while (1) {
 	printf("%d) ending_index = %d, num_sgts_by_handler[%d] = %d\n", my_id, ending_index, request_from_handler_id, num_sgts_by_handler[request_from_handler_id]);
 	if (ending_index==num_sgts_by_handler[request_from_handler_id]) {
 		//Move to next handler
+		//AR: This line used to check the two conditions in the opposite order. First whether the
+		//AR: array had a 0 in this position, and only THEN whether the position was even a
+		//AR: valid one to look at. In C, that meant it could try to read a position that
+		//AR: doesn't exist before ever checking if it exists. That reads garbage memory,
+		//AR: which then gets treated as if it were a valid handler number, and everything
+		//AR: downstream that uses it gets corrupted. Just switching the order of the two
+		//AR: checks (valid position first, then what's in it) fixes it. This crashed
+		//AR: 3-component runs with a corrupted-data error that looked unrelated to this line
+		//AR: at first.
 		do {
 			request_from_handler_id++;
-		} while (num_sgts_by_handler[request_from_handler_id]==0 && request_from_handler_id<num_sgt_handlers);
+		} while (request_from_handler_id<num_sgt_handlers && num_sgts_by_handler[request_from_handler_id]==0);
 		if (request_from_handler_id>=num_sgt_handlers) {
 			//No more requests, we are done
 			break;

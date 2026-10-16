@@ -1422,11 +1422,13 @@ c==================================================================
 	real	a(npts)
 	real	xxin,xout
 	integer	kkin,kout
-	equivalence	(xxin,kkin),(xout,kout)
+c AR: Use character arrays for byte_swap4 so the swap operates on raw bytes (portability fix)
+        character*1 cin4(4), cout4(4)
+        equivalence     (xxin,kkin),(xout,kout),(kkin, cin4),(kout, cout4)
 
 	do i=1,npts
 		xxin = a(i)
-		call byte_swap4(kkin,kout)
+		call byte_swap4(cin4,cout4)
 		a(i) = xout
 	enddo
 

@@ -247,8 +247,17 @@ int run_synth(task_info* t_info, int* proc_points, int num_sgt_handlers, int num
 		period[period_len] = ' ';
 		byteswap_len = strlen(byteswap);
 		byteswap[byteswap_len] = ' ';
-		input_file_len = strlen(input_file);
-		input_file[input_file_len] = ' ';
+		//AR: input_file, unlike the other variables just above, never gets a value
+		//AR: put into it anywhere in the program. It only ever gets filled with 256 blank
+		//AR: spaces. Because of that, asking for its length the way the lines above do was
+		//AR: not safe, there is no end marker anywhere in it to find, so that search kept
+		//AR: reading memory past the end of the space it was allowed to use. I found this
+		//AR: because a memory checking tool caught it happening on a California run.
+		//AR: The fix is simple, since I already know it is exactly 256 spaces long, I just
+		//AR: use that fixed number directly instead of searching for its length. I also
+		//AR: don't need to add anything to the end of it, since it is already full of
+		//AR: spaces from the moment it was created.
+		input_file_len = 256;
 		//output_file_len = strlen(output_file);
 		output_file[output_file_len] = ' ';
 		printf("%d) output_file_len = %d\n", my_id, output_file_len);
