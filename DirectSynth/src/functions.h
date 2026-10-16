@@ -43,6 +43,7 @@ int parse_rup_geom(char* rup_geom_file, struct rup_geom_point** rg_points);
 //log.c
 void open_log(int my_id);
 void write_log(char* string);
+void write_log_memory(char* label);
 void close_log();
 
 //synth.c

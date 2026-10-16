@@ -111,6 +111,10 @@ void do_work(int argc, char** argv, struct sgtmaster* sgtmast, struct sgtindex* 
 			t_info.argc = argc;
 			t_info.argv = argv;
 			run_synth(&t_info, proc_points, num_sgt_handlers, num_rv_infos, rvinfo_array, stat, slat, slon, run_id, det_max_freq, stoch_max_freq, run_PSA, run_rotd, run_duration, run_period_duration, run_vert_rsp, my_id);
+			//AR: I added this to log memory use here too, once per finished task, so I can
+			//AR: see how memory use changes over time on the worker side, not just get one
+			//AR: total figure for the whole run.
+			if (debug) write_log_memory("after_task");
 		} else if (msg.msg_type==WORK_COMPLETE) {
 			if (debug) write_log("No more work to do, shutting down.");
 			break;

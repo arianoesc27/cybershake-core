@@ -108,7 +108,14 @@ return(temp);
 
 void *check_realloc(void *ptr,size_t len)
 {
-if (debug) {
+//AR: This message used to print at the normal debug level. I found it was printing up to
+//AR: about 9.4 million times for a single worker in one run, since it fires every
+//AR: time this buffer needs to grow, which happens for nearly every SGT point. Each print
+//AR: forces a disk write, so this was slowing things down a lot. I moved it to a
+//AR: higher debug level so normal runs still get the lightweight progress messages without
+//AR: paying for this one. Nothing currently turns this higher level on, it's just there for
+//AR: future manual debugging if needed.
+if (debug>=2) {
     char buf[256];
     sprintf(buf, "Reallocating %ld bytes.", len);
     write_log(buf);
@@ -142,7 +149,11 @@ void *check_malloc(size_t len)
 {
 char *ptr;
 
-if (debug) {
+//AR: I found the exact same problem here, since this function is called just as often as
+//AR: check_realloc() above, in the same hot spot of the program. In one run, 266,452
+//AR: out of a worker's 267,712 total log lines over about 56 minutes were just this one
+//AR: message. I moved it to the same higher debug level for the same reason.
+if (debug>=2) {
 	char buf[256];
 	sprintf(buf, "Allocating %ld bytes.", len);
 	write_log(buf);

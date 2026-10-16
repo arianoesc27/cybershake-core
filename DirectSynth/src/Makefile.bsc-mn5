@@ -1,0 +1,175 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for DirectSynth/direct_synth
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is NOT tracked by upstream (SCEC GitHub), it's for BSC/MN5 only
+
+# AR: I force the GCC compiler here, since Intel's compiler rejects some of the old C
+# AR: syntax this codebase uses and produces files that need Intel-only libraries at run time
+export I_MPI_CC = gcc
+export I_MPI_F90 = gfortran
+
+# AR: The original code expects an old Fortran compiler wrapper that doesn't exist on MN5,
+# AR: so I use the modern one instead
+FC = mpif90
+
+# AR: libcfu library location, relative from this folder
+LIBCFU = ../../../utils/libcfu-0.03/install
+
+# AR: RupGen paths, relative from this folder
+CUR_RG_LIB  = -L../../RuptureCodes/RupGen-api-5.5.2/lib
+V3_3_1_RG_LIB = -L../../RuptureCodes/RupGen-api-3.3.1/lib
+CUR_RG_INC  = -I../../RuptureCodes/RupGen-api-5.5.2/include
+V5_4_2_RG_INC = -I../../RuptureCodes/RupGen-api-5.4.2/include
+V3_3_1_RG_INC = -I../../RuptureCodes/RupGen-api-3.3.1/include
+
+# AR: I use the FFTW3 math library build made for GCC, since the one built for Intel needs
+# AR: Intel-only libraries that aren't compatible with the GCC compiler I'm using
+TACC_FFTW3_LIB = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI/lib
+TACC_FFTW3_INC = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI/include
+
+# AR: memcached is not available on MN5, so I removed it from the list of libraries to link
+# AR: I also link the FFTW3 math library as a fixed file instead of a shared one, to avoid
+# AR: needing Intel-only libraries at run time
+LDLIBS = -lrupgen -L${GETPAR}/lib -lget -L${LIBCFU}/lib -lcfu -lm ${TACC_FFTW3_LIB}/libfftw3f.a
+
+IFLAGS = -I${GETPAR}/include -I${LIBCFU}/include -I${TACC_FFTW3_INC}
+
+# AR: I removed two Intel-only math libraries that aren't available with the GCC compiler
+UFLAGS = -O3 -g
+
+# AR: Python 3.13 from the CyberShake conda environment in MN5 miniforge
+PYTHON_LIBS = -L/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/lib -lpython3.13
+PYTHON_INC  = -I/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/include/python3.13
+
+# AR: These Fortran compiler flags are all adjusted for the compiler MN5 actually has
+# AR: (gfortran instead of Intel's), including one that stops large arrays living on the
+# AR: stack from crashing the program on MN5, and one needed so C and Fortran code can be
+# AR: linked together correctly
+FFLAGS = ${UFLAGS} -ffixed-line-length-132 -fmax-stack-var-size=100 -lgfortran
+
+# AR: memcached is not available on MN5; disable all memcached code at compile time
+CFLAGS = ${UFLAGS} ${IFLAGS} ${PYTHON_INC} -DBSC_DISABLE_MEMCACHED
+
+# AR: I found each direct_synth worker gets 4 CPUs assigned to it, but the normal binary
+# only uses 1 of those 4 CPUs, since it isn't written to use more than one at a time. That's
+# why I measured CPU use stuck at about 25% no matter how many workers or nodes I tried.
+# There is already an OpenMP version of the file with the slow loop in it, written to use
+# multiple CPUs at once, but it was never actually built or used, and it was missing a few
+# fixes the regular file already had (some parameters weren't passed through, one output
+# file was disabled, and one call would fail to build at all on MN5). I fixed all of that
+# directly in that file. This new build target makes a SEPARATE binary, direct_synth_omp,
+# instead of replacing the normal direct_synth binary. This OpenMP path has not been
+# tested in a full run yet, so the binary I know works stays available while I
+# validate the new one.
+jbsim/jbsim3d_omp.o : jbsim/jbsim3d_omp.c
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o jbsim/jbsim3d_omp.o jbsim/jbsim3d_omp.c
+
+direct_synth_omp : direct_synth.c jbsim/jbsim3d_omp.o ${OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS}
+	-rm -f direct_synth_omp.o
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o direct_synth_omp.o direct_synth.c
+	${FC} ${FFLAGS} -fopenmp -o direct_synth_omp direct_synth_omp.o jbsim/jbsim3d_omp.o ${OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS} ${CUR_RG_LIB} ${LDLIBS} -lstdc++ ${PYTHON_LIBS}
+	cp direct_synth_omp ../bin/
+
+# AR: Otro hallazgo, mas grande que el de arriba. Midiendo los logs de una corrida
+# encontre que find_sgt() (la funcion que busca los puntos SGT mas cercanos a cada
+# punto de la falla) se estaba comiendo el 90% del tiempo de cada tarea, y no la generacion
+# de rupturas, que es apenas el 1%. La causa es que, para cada punto de la falla, recorre
+# TODA la malla de SGTs, que puede tener cientos de miles de puntos, buscando el mas
+# cercano. Como los puntos SGT son en realidad una grilla entera, no dispersos, armo una
+# tabla hash una sola vez por tarea y busco por "anillos" cada vez mas lejos en vez de
+# barrer todo, mismo resultado, mucho mas rapido. Lo probe contra el algoritmo original con
+# 20.000 casos de prueba, incluyendo casos raros de borde, y no fallo ninguno. Los pesos salen
+# iguales bit por bit en el 93% de los casos y en el resto difieren como maximo en el ultimo
+# bit de precision del numero, que es puro redondeo por sumar en otro orden y no un
+# error. Esto vive en un archivo nuevo, synth_spatial.c, que es una copia de synth.c con SOLO
+# ese cambio, mas paralelizar ese loop con multiples hilos, ya que confirme que ese loop en
+# particular SI es seguro de paralelizar, a diferencia de otras partes del programa que usan
+# Fortran viejo con memoria compartida insegura.
+#
+# El unico cambio de conexion esta aca abajo. Es un target nuevo (direct_synth_spatial) que
+# compila y linkea synth_spatial.o en vez de synth.o, dejando intactos direct_synth y
+# direct_synth_omp tal cual estaban. No hay que tocar worker.c ni ningun otro archivo, ya
+# que la funcion principal se llama IGUAL en los dos archivos (synth.c y synth_spatial.c),
+# asi que para el resto del programa da lo mismo cual de los dos termino conectado. Eso lo
+# decide unicamente esta receta del Makefile, eligiendo cual de los dos usar en este target
+# en vez del de siempre.
+sgt3d_subs_spatial.o : jbsim/sgt3d_subs_spatial.c
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o jbsim/sgt3d_subs_spatial.o jbsim/sgt3d_subs_spatial.c
+
+synth_spatial.o : synth_spatial.c
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o synth_spatial.o synth_spatial.c
+
+# AR: misma lista que OBJS, pero cambiando synth.o por synth_spatial.o, y esa es toda la
+# AR: diferencia.
+SPATIAL_OBJS = master.o sgt_handler.o task_manager.o worker.o \
+	fp_cache.o misc.o synth_spatial.o mpi_functions.o log.o \
+	iofunc.o
+
+direct_synth_spatial : direct_synth.c synth_spatial.o jbsim/sgt3d_subs_spatial.o jbsim/jbsim3d.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS}
+	-rm -f direct_synth_spatial.o
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o direct_synth_spatial.o direct_synth.c
+	${FC} ${FFLAGS} -fopenmp -o direct_synth_spatial direct_synth_spatial.o jbsim/jbsim3d.o jbsim/sgt3d_subs_spatial.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS} ${CUR_RG_LIB} ${LDLIBS} -lstdc++ ${PYTHON_LIBS}
+	cp direct_synth_spatial ../bin/
+# AR: (2026-09-07) I found and fixed a bug here. The Python workflow always calls the binary
+# by its plain name, "direct_synth" (in runDS/base.py ds_path is always
+# "<cybershake_path>/DirectSynth/bin/direct_synth", never "..._spatial"). So the file that
+# counts in every run is the plain "direct_synth" in bin/, whichever target built it. A later
+# rebuild for something else (2026-09-04, when I fixed the ASan heap corruption) made plain
+# "direct_synth" again from the old find_sgt(). That binary was still correct, it just did not
+# have the find_sgt_spatial() speedup, and nothing told me the production binary had lost a
+# 4.3x gain I had already measured on the cluster. This line keeps plain "direct_synth" a copy
+# of direct_synth_spatial from now on, so rebuilding this target can never again leave the
+# production binary on the slow path.
+	cp direct_synth_spatial ../bin/direct_synth
+
+# AR: Combines both optimizations above into one binary, instead of leaving them in two
+# separate ones. Same recipe as direct_synth_spatial, the only difference is linking
+# jbsim/jbsim3d_omp.o (the parallelized write_srf) instead of the plain jbsim/jbsim3d.o.
+# Both changes are independent of each other (one speeds up finding SGT points, the other
+# parallelizes writing the .srf rupture file), so there is no reason they cannot coexist
+# in the same binary. write_srf was only ever measured at about 1% of total task time
+# (against 90% for find_sgt), so this alone will not give a big speedup on its own, but
+# there is no reason to leave it out now that both pieces already exist and work.
+direct_synth_full : direct_synth.c synth_spatial.o jbsim/sgt3d_subs_spatial.o jbsim/jbsim3d_omp.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS}
+	-rm -f direct_synth_full.o
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o direct_synth_full.o direct_synth.c
+	${FC} ${FFLAGS} -fopenmp -o direct_synth_full direct_synth_full.o jbsim/jbsim3d_omp.o jbsim/sgt3d_subs_spatial.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS} ${CUR_RG_LIB} ${LDLIBS} -lstdc++ ${PYTHON_LIBS}
+	cp direct_synth_full ../bin/
+
+# AR: I measured the logs of a run that already had the first speedup (direct_synth_spatial).
+# CPU use during DirectSynth stays around 25% no matter how many workers I use, and fetching
+# SGT data from the handlers now takes 65 to 68% of the time of each task. Generating the
+# rupture and the physics take much less. That is because a task usually needs data from
+# several SGT handlers (7 to 11 in the tasks I measured), and the code asks them one by one,
+# waiting for the full answer before asking the next. Every handler is its own process, so
+# they could work at the same time. Nothing forces the one-by-one order except the way the
+# code was written.
+#
+# So I send the request to every handler the task needs data from at the same time (MPI's
+# non-blocking Isend/Irecv, instead of the blocking send/receive used everywhere else in this
+# code), and then wait for all the answers together. The wait becomes as long as the SLOWEST
+# handler, instead of the sum of all of them. This needs one buffer per handler instead of one
+# shared buffer, because they are all filled at about the same time. That costs a little more
+# memory, and the nodes have plenty of free RAM.
+#
+# Like direct_synth_spatial and direct_synth_full above, this is a NEW, separate binary
+# (direct_synth_spatial_async). It is built from a new file, jbsim/jbsim3d_async.c, which is a
+# copy of jbsim3d.c where only the SGT fetching changes and everything else is byte for byte
+# the same. That way the binary I already tested on the cluster stays untouched while I
+# validate this one.
+#
+# What I got (2026-09-07), with the full 395-rupture catalog of the TEST site on the same
+# machine and nodes as the direct_synth_spatial measurement above. The numbers are correct (a
+# sample of results matched the tested binary exactly, or within the same last-bit rounding
+# already seen for the find_sgt_spatial change), but it is NOT faster. CPU use came out at
+# 24.9% for both binaries (statistically the same), and wall time was a bit worse
+# (2h17m here vs 2h08m for direct_synth_spatial). So asking the handlers at the same time
+# did not make the tasks faster. NOT wired into production
+# (plain "direct_synth" in bin/ stays a copy of direct_synth_spatial's output, not this one).
+jbsim/jbsim3d_async.o : jbsim/jbsim3d_async.c
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o jbsim/jbsim3d_async.o jbsim/jbsim3d_async.c
+
+direct_synth_spatial_async : direct_synth.c synth_spatial.o jbsim/sgt3d_subs_spatial.o jbsim/jbsim3d_async.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS}
+	-rm -f direct_synth_spatial_async.o
+	${CC} ${CFLAGS} -fopenmp ${CUR_RG_INC} -c -o direct_synth_spatial_async.o direct_synth.c
+	${FC} ${FFLAGS} -fopenmp -o direct_synth_spatial_async direct_synth_spatial_async.o jbsim/jbsim3d_async.o jbsim/sgt3d_subs_spatial.o ${SPATIAL_OBJS} ${SYNTH_OBJS} ${PSA_OBJS} ${ROTD_OBJS} ${DURATION_OBJS} ${CUR_RG_LIB} ${LDLIBS} -lstdc++ ${PYTHON_LIBS}
+	cp direct_synth_spatial_async ../bin/

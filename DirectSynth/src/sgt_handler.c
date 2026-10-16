@@ -124,6 +124,10 @@ void handler_listen(struct sgtmaster* sgtmast, struct sgtindex* sgtindx, struct 
 			if (debug) write_log("Receiving list of SGTs.");
 			check_recv(sgts_requested, num_sgts_requested, MPI_LONG_LONG, data_src, SGT_REQUEST_TAG, MPI_COMM_WORLD, "Error receiving SGT request, aborting.", my_id);
 			handle_SGT_request(sgts_requested, num_sgts_requested, hash_table, sgtmast, sgthead, sgtdata, num_my_points, my_id, num_comps, data_src, sgtheader_type, sgtdata_type);
+			//AR: I added this to also log memory use here, for the SGT handler process
+			//AR: itself, each time it answers a request, not just for the worker
+			//AR: processes.
+			if (debug) write_log_memory("after_sgt_request");
 		} else if (msg.msg_type==WORKERS_COMPLETE) {
 			if (debug) write_log("Received workers complete message, shutting down.");
 			break;
