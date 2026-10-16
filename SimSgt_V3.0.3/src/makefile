@@ -53,9 +53,17 @@ check_n1n2 : check_n1n2.c ${OBJS}
 gen_source : gen_source.c ${OBJS}
 	${CC} ${CFLAGS} gen_source.c -o gen_source ${OBJS} ${LDLIBS}
 
+# AR: my version of gen_source.c that reads nt, dt, flo, fhi, stype and the rest with getpar
+# AR: instead of fixed values, so the CyberShake workflow can set them from its config.
+gen_source_par : gen_source_par.c ${OBJS}
+	${CC} ${CFLAGS} gen_source_par.c -o gen_source_par ${OBJS} ${LDLIBS}
+
 ${OBJS} : ${HEADS}
 
 ${MAIN_OBJ} : ${HEADS}
 
 clean :
 	-rm -f ${MAIN_OBJ} ${OBJS}
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

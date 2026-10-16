@@ -1279,7 +1279,7 @@ else if(srcs.adjoint == 1) /* read adjoint binary format */
    srcs.dblcpl = 0;
    srcs.ffault = 0;
 
-   mstpar("adjointfile","s",srcs.adjointfile);
+   mstpar("adjointfile","s",srcs.adjoint_file); /* AR: struct field is adjoint_file (upstream typo) */
    }
 
 /* other run parameters */
@@ -1855,7 +1855,7 @@ for(it=0;it<nt;it++)
                   ybndflag = YN;
                }
 
-            fsurf_vel(nx,nz,pvptr,medptr,&fdcoefs,ybndflag);
+            fsurf_vel(nx,nz,pvptr,medptr,&fdcoefs,ybndflag, &medinp); /* AR: 7-arg signature (upstream missing arg) */
             }
          }
 
