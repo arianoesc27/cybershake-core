@@ -1,0 +1,15 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for RupGen-api-5.5.2/utils
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: FFTW3 on MN5 GPP nodes (module FFTW/3.3.10)
+FFTW_DIR = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI
+
+# AR: MN5 does not have memcached, so I removed it from INC and LIBS.
+# AR: Getpar path as relative from utils/ (3 levels up → cybershake-core/Getpar/getpar)
+INC  = -I../include/ -I../../../Getpar/getpar/include -I$(FFTW_DIR)/include
+# AR: I link the static FFTW archives. The shared FFTW/INTEL/IMPI build needs Intel runtime libraries that gcc does not have.
+LIBS = -L../lib -lrupgen -L../../../Getpar/getpar/lib -lget $(FFTW_DIR)/lib/libfftw3f.a $(FFTW_DIR)/lib/libfftw3.a -lm
+
+# AR: memcached is not available on MN5; disable all memcached code at compile time
+CFLAGS = -O3 -DBSC_DISABLE_MEMCACHED

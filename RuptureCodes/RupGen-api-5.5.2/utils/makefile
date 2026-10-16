@@ -20,3 +20,6 @@ get_num_rvs: get_num_rvs.c
 
 get_hypo: get_hypo.c
 	$(CC) $(CFLAGS) -o get_hypo get_hypo.c $(INC) $(LIBS)
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

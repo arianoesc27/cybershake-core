@@ -80,4 +80,7 @@ clean:
 cleanmore:
 	rm fort.* core.* CHK* SS* V* SRCT*
 
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5
+
 

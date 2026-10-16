@@ -1,0 +1,7 @@
+# AR: My settings for MareNostrum 5, with the GETPAR and FFTW paths and no memcached.
+FFTW_DIR = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI
+# AR: -DBSC_DISABLE_MEMCACHED triggers guard in get_num_rvs.c (commit 5)
+CFLAGS = -O3 -DBSC_DISABLE_MEMCACHED
+INC = -I../include/ -I../../../Getpar/getpar/include -I$(FFTW_DIR)/include
+# AR: I link the static FFTW archives. The shared FFTW/INTEL/IMPI build needs Intel runtime libraries that gcc does not have.
+LIBS = -L../lib -lrupgen -L../../../Getpar/getpar/lib -lget $(FFTW_DIR)/lib/libfftw3f.a -lm -lstdc++

@@ -70,3 +70,6 @@ test_duration : test_duration.c ${TEST_DURATION_OBJS}
 
 clean:
 	-rm -f $(OBJS) $(SYNTH_OBJS) $(PSA_OBJS) $(ROTD_OBJS) $(DURATION_OBJS) jbsim/jbsim3d.o jbsim/jbsim3d_v3.3.1.o $(TARGETS) direct_synth.o direct_synth_v3.3.1.o direct_synth_v3.3.1
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

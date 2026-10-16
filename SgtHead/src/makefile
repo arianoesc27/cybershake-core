@@ -77,3 +77,6 @@ generate_point_list : generate_point_list.c
 
 clean :
 	-rm -f ${OBJS} ${WRITE_OBJS} ${CMP_OBJS} ${REF_OBJS} ${TARGETS}
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

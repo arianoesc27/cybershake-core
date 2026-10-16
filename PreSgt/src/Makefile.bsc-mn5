@@ -1,0 +1,19 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for PreSgt/gen_sgtgrid
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: I use the GCC and gfortran backends. icx and ifx reject the old K&R C and need Intel-only runtime libraries.
+# AR: I_MPI_CC/FC env vars steer Intel MPI wrappers to use GCC toolchain
+export I_MPI_CC = gcc
+export I_MPI_F90 = gfortran
+CC = mpicc
+FC = mpif90
+
+UFLAGS = -O3 -g
+
+# AR: I installed libcfu with ./configure --prefix=$PWD/install, so the path is not the one SCEC uses.
+LIBS = -lm -L${GETPAR}/lib -lget -L../../../utils/libcfu-0.03/install/lib -lcfu
+I_FLAGS = -I${GETPAR}/include -I../../../utils/libcfu-0.03/install/include
+
+# AR: memcached is not available on MN5; disable all memcached code at compile time
+CFLAGS = $(UFLAGS) $(I_FLAGS) $(LF_FLAGS) -DBSC_DISABLE_MEMCACHED

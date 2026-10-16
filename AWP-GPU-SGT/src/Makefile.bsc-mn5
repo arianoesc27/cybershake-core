@@ -1,0 +1,90 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for AWP-GPU-SGT
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of Makefile
+# AR: This file is NOT tracked by upstream (SCEC GitHub), it's for BSC/MN5 only
+
+# AR: I force the GCC compiler here, since Intel's default compiler rejects some old C
+# AR: syntax this codebase uses
+export I_MPI_CC = gcc
+
+# AR: Base GPU compiler flags without the block size setting, each pmcl3dN build target
+# AR: compiles its own version of the GPU code with its own block size below.
+# AR: -arch=sm_90 targets the H100 GPUs on MN5's GPU nodes.
+# AR: -use_fast_math turns on faster math operations, which is fine for this kind of
+# AR: wave simulation
+GFLAGS_BASE = $(CUDA_HOME)bin/nvcc -use_fast_math -arch=sm_90
+
+# AR: Default flags used by the original build target
+GFLAGS = $(GFLAGS_BASE) -DBLOCK_SIZE_Z_OVERRIDE=256
+
+# AR: I removed a library that only exists on the original cluster this code was written
+# AR: for, MN5's version of MPI doesn't need it
+LIB = -L$(CUDA_HOME)/lib64 -L$(MPI_HOME)/lib -ldl -lcudart -lm -lpthread -lnvToolsExt -lstdc++
+
+# AR: The old way of reading GPU memory (texture access) was removed in newer CUDA
+# AR: versions. Not turning on that old code path means the program uses the current,
+# AR: supported way of reading memory instead, which works on MN5's CUDA version.
+
+#AR: I found that pmcl3d.c is NOT actually independent of the block size setting like I
+#AR: first thought, it reads that setting directly to check the mesh size. The original
+#AR: build only compiled this file ONCE, with the default setting baked in, and reused that
+#AR: same compiled file for every block size target. That meant every binary I built
+#AR: (pmcl3d16, pmcl3d256, and so on) actually had the SAME old default setting baked in,
+#AR: no matter which block size its GPU code was built for. I found this the hard way. A
+#AR: binary built for block size 256 failed to even start, complaining its setting (252)
+#AR: didn't match its mesh size (256), even right after a fresh rebuild, because only the
+#AR: GPU part had been rebuilt with the right setting, not this file. The fix is to compile
+#AR: this file separately for each block size too, in the per-size recipe below, so each
+#AR: binary gets its own correctly built copy.
+NON_KERNEL_OBJS = command.o grid.o source.o mesh.o cerjan.o swap.o io.o sgt.o
+
+# AR: I generate one explicit build rule per block size below, to avoid conflicts.
+# AR: To use it, make pmcl3d256, or make all_sizes to build every size at once.
+define BUILD_SIZE
+kernel_$(1).o: kernel.cu
+	$$(GFLAGS_BASE) -DBLOCK_SIZE_Z_OVERRIDE=$(1) $$(INCDIR) -c -o $$@ $$<
+
+pmcl3d_$(1).o: pmcl3d.c
+	$$(CC) $$(CFLAGS) -DBLOCK_SIZE_Z_OVERRIDE=$(1) $$(INCDIR) -c -o $$@ $$<
+
+pmcl3d$(1): $$(NON_KERNEL_OBJS) pmcl3d_$(1).o kernel_$(1).o
+	$$(CC) $$(CFLAGS) $$(INCDIR) -o $$@ $$^ $$(LIB)
+	mkdir -p ../bin
+	cp $$@ ../bin/
+endef
+
+#AR: I added 252 alongside the usual power of 2 sizes, since it's the old hardcoded default
+#AR: this codebase used before this override setting existed, and some old model grids are
+#AR: still sized around it. Keeping it built alongside 256 so both are available depending
+#AR: on the model I'm running.
+#AR: I added 200 for the mesh of the California TEST site, since that mesh's Z size is 200
+#AR: and this setting has to evenly divide the mesh's Z size.
+#AR: I removed 16 from this list on purpose. A block size of 16 gives 16*2 = 32 threads per
+#AR: block, which is a single warp, and that is bad for two separate reasons that add up.
+#AR: First, threadIdx.x maps to Z and Z is the contiguous dimension in memory, so with 16 the
+#AR: warp's 32 threads split across two different Y rows and each memory request brings 64
+#AR: useful bytes instead of 128. That is half the bandwidth thrown away, and this code is
+#AR: limited by memory, not by arithmetic. Second, one warp per block means the SM runs out
+#AR: of its 32 block slots after only 32 warps, so occupancy is capped at 50% no matter what.
+#AR: 32 is the natural floor, it is exactly where a warp covers a contiguous run in Z and
+#AR: where the block-slot cap stops biting. I also measured that the dstrqc kernel uses 72
+#AR: registers per thread, which by itself caps occupancy at 44% for larger blocks.
+#AR: I build every multiple of 32 from 32 to 512. 32 because that is the warp size, so a
+#AR: block that is a multiple of 32 keeps the warps lined up with the rows of Z. 512 because
+#AR: the block is BLOCK_SIZE_Z*2 threads and CUDA allows at most 1024 per block.
+#AR: Worth knowing, pmcl3d32 on its own already covers every NZ that is a multiple of 32,
+#AR: since 32 divides all of them. The bigger sizes add no new coverage, they just let me
+#AR: use fatter blocks with fewer blocks in Z. I build them anyway because it costs nothing
+#AR: and it saves having to come back and compile one later.
+#AR: 200 and 252 are kept even though they are NOT multiples of 32. 200 is the one the
+#AR: workflow runs today (40 km depth at 200 m spacing) and 252 is SCEC's own default from
+#AR: gen_grid.py (50.4 km). They work fine, they just leave one warp partly empty, which is
+#AR: cheaper than moving the model depth to a rounder number. Dropping them would break the
+#AR: ability to reproduce our own archived runs.
+$(foreach N,32 64 96 128 160 192 200 224 252 256 288 320 352 384 416 448 480 512,$(eval $(call BUILD_SIZE,$(N))))
+
+# AR: This target builds all the block sizes I keep for MN5.
+# AR: 200 was missing here even though the foreach above builds it, and it is the one the
+# AR: workflow actually runs (PMCL3D_BIN points at pmcl3d200), so I added it.
+all_sizes: pmcl3d32 pmcl3d64 pmcl3d96 pmcl3d128 pmcl3d160 pmcl3d192 pmcl3d200 \
+           pmcl3d224 pmcl3d252 pmcl3d256 pmcl3d288 pmcl3d320 pmcl3d352 pmcl3d384 \
+           pmcl3d416 pmcl3d448 pmcl3d480 pmcl3d512

@@ -1,0 +1,32 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for SgtHead
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: Compilers.mk default sets MY_MPICC=mpicc which is correct for MN5.
+# AR: I set CFLAGS again. SCEC uses "-h msglevel_3", which only exists on Cray.
+# AR: On MN5 with gcc/icc this flag is unrecognized and causes compilation failure.
+LF_FLAGS = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
+CFLAGS = -O3 ${LF_FLAGS}
+FFLAGS = -O3
+
+# AR: Use MPI-aware compilers for reformat_awp_mpi which uses MPI_Init
+# AR: I force the GCC backend. Intel icx and ifx reject the old K&R C and need Intel-only runtime libraries.
+export I_MPI_CC = gcc
+export I_MPI_F90 = gfortran
+CC = mpicc
+FC = mpif90
+
+# AR: (2026-07-06) Upstream's "all" target does "cp $$TARGET ../bin" for each binary without
+# AR: ever creating ../bin first. If ../bin doesn't already exist as a directory, cp treats it
+# AR: as a destination FILENAME instead. Each iteration overwrites the same file, so ../bin
+# AR: ends up being a copy of whichever target happens to be last in $(TARGETS)
+# AR: (generate_point_list), not a directory containing all 9 tools. I found it the hard way, when
+# AR: a run failed with "execve(): .../SgtHead/bin/reformat_awp_mpi: Not a directory".
+# AR: Redefining "all" here (GNU Make uses this file's recipe since -include comes last,
+# AR: emitting a harmless "overriding recipe" warning) just to add the missing mkdir -p.
+all: $(TARGETS)
+	mkdir -p ../bin
+	for TARGET in $(TARGETS); do \
+		rm -rf ../bin/$$TARGET ; \
+		cp $$TARGET ../bin ; \
+	done

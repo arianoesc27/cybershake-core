@@ -1,0 +1,5 @@
+# AR: My settings for MareNostrum 5. There is no memcached, and I use the MN5 FFTW module.
+FFTW_DIR = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI
+# AR: I set CFLAGS and LDLIBS again, because SCEC's := fixed -D_USE_MEMCACHED and the OLCF_FFTW_ROOT paths.
+CFLAGS = -O3 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -I$(GETPARINC) -I$(FFTW_DIR)/include
+LDLIBS = -L$(GETPARLIB) -lm -lget -lgfortran -L$(FFTW_DIR)/lib -lfftw3f

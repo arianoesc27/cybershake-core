@@ -67,14 +67,19 @@ FFLAGS = ${UFLAGS} -ffixed-line-length-132 -finit-local-zero -Wuninitialized
 
 all: hf_synth_bbp hf_synth hf_synth_lite
 
-hfsim_bbp.o : hfsim_bbp.c ${HFSIM_BBP_OBJS}	
+# AR: I removed ${HFSIM_BBP_OBJS} from the prerequisites. They are only needed at link time, not to compile.
+# AR: Their Alpine paths would block MN5 builds at parse time before Makefile.bsc-mn5 can override them.
+hfsim_bbp.o : hfsim_bbp.c
 	${CC} ${CFLAGS} -c -o hfsim_bbp.o hfsim_bbp.c ${IFLAGS} ${PYTHON_INC} ${BBP_INC}
 
 hf_synth_bbp.o : hf_synth_bbp.c
 	${CC} ${CFLAGS} -c -o hf_synth_bbp.o hf_synth_bbp.c ${BBP_INC}
 
-hf_synth_bbp : hf_synth_bbp.o ${HF_SYNTH_BBP_OBJS}	
-	${CC} ${CFLAGS} -o hf_synth_bbp hf_synth_bbp.o ${HF_SYNTH_BBP_OBJS} ${HFSIM_BBP_OBJS} ${LDLIBS} ${UCVMLIBS} ${PYTHON_LIBS} 
+# AR: Replaced ${HF_SYNTH_BBP_OBJS} prereq (contains Alpine SRF2STOCH_DIR path) with explicit local targets.
+# AR: misc.o iofunc.o added explicitly since they were previously built as ${HFSIM_BBP_OBJS} prereqs of hfsim_bbp.o.
+# AR: ${HF_SYNTH_BBP_OBJS} and ${HFSIM_BBP_OBJS} in the recipe expand lazily to our BBP 24.5.0 paths.
+hf_synth_bbp : hf_synth_bbp.o hfsim_bbp.o get_vs30.o misc.o iofunc.o
+	${CC} ${CFLAGS} -o hf_synth_bbp hf_synth_bbp.o ${HF_SYNTH_BBP_OBJS} ${HFSIM_BBP_OBJS} ${LDLIBS} ${UCVMLIBS} ${PYTHON_LIBS}
 	cp hf_synth_bbp ../bin/
 
 hf_synth : hf_synth.o ${HF_SYNTH_OBJS}
@@ -126,3 +131,6 @@ call_calc_rvfac :  call_calc_rvfac.c
 
 clean :
 	rm -f ${OBJS} ${GENRAND_OBJS} ${BAILEY_OBJS} ${GEOPROJ_OBJS} *.o
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

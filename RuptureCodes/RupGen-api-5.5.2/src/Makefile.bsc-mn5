@@ -1,0 +1,48 @@
+# AR: MareNostrum 5 (BSC) standalone build file for RupGen-api-5.5.2/src
+# AR: To use it, make -f Makefile.bsc-mn5
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+# AR: Mirrors Makefile.frontier logic but replaces OLCF-specific paths and removes memcached
+
+GETPAR = ../../../Getpar/getpar
+GETPARLIB = ${GETPAR}/lib
+GETPARINCL = ${GETPAR}/include
+
+GENSLIP = GenRandV5.0
+
+GENSLIP_OBJS = ${GENSLIP}/ruptime.o ${GENSLIP}/iofunc.o ${GENSLIP}/srf_subs.o \
+	${GENSLIP}/misc.o ${GENSLIP}/slip.o ${GENSLIP}/gslip_srf_subs.o \
+	${GENSLIP}/geoproj_subs.o ${GENSLIP}/gslip_sliprate_subs.o \
+	${GENSLIP}/wafront2d-rwg.o ${GENSLIP}/fourg.o ${GENSLIP}/genslip-v5.5.2.o
+
+CC  = gcc
+FC  = gfortran
+AR  = ar
+
+# AR: FFTW3 on MN5 GPP nodes (module FFTW/3.3.10)
+FFTW_DIR = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI
+
+UFLAGS = -O3 -g
+FFLAGS = ${UFLAGS} -ffixed-line-length-none
+
+# AR: No TACC_FFTW3_INC and no -D_USE_MEMCACHED. I took them out of SCEC's Makefile.frontier.
+CFLAGS = -I${GETPARINCL} -I${FFTW_DIR}/include \
+	-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE \
+	-D_FILE_OFFSET_BITS=64 -DUSE_IOBUF_MACROS ${UFLAGS}
+
+# AR: No -lmemcached, because MN5 does not have memcached.
+LIBS = -L${GETPARLIB} -lget -lgfortran -lm -L${FFTW_DIR}/lib -lfftw3 -lfftw3f
+
+TARGETS = librupgen.a
+
+all: $(TARGETS)
+
+librupgen.a: rupgen_api.o
+	cd ${GENSLIP} && $(MAKE)
+	$(AR) rcs $@ $^ ${GENSLIP_OBJS}
+	cp librupgen.a ../lib/
+	cp rupgen_api.h ../include/
+	cp structure.h ../include/
+	cp srf_structure.h ../include/
+
+clean:
+	rm -f core *.o *~ $(TARGETS) ${GENSLIP}/*.o

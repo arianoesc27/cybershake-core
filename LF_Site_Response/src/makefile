@@ -51,7 +51,10 @@ lf_site_response : lf_site_response.c ${OBJS}
 	${CC} ${CFLAGS} -o lf_site_response lf_site_response.c ${OBJS} ${LDLIBS} ${UCVMLIBS}
 	cp lf_site_response ../bin/
 
-lf_site_response_bbp : lf_site_response_bbp.c ${BBP_OBJS}
+# AR: I removed ${BBP_OBJS} from the prerequisites. It had Alpine WCC_DIR paths fixed when make reads the file.
+# AR: retrieve_vs.o iofunc.o misc.o added explicitly (local); BBP WCC .o files already exist.
+# AR: ${BBP_OBJS} in the recipe expands lazily to our BBP 22.4.0 paths via Makefile.bsc-mn5.
+lf_site_response_bbp : lf_site_response_bbp.c retrieve_vs.o iofunc.o misc.o
 	${CC} ${CFLAGS} -o lf_site_response_bbp lf_site_response_bbp.c ${BBP_INC} ${UCVMINC} ${BBP_OBJS} ${LDLIBS} ${UCVMLIBS}
 	cp lf_site_response_bbp ../bin/
 
@@ -66,3 +69,6 @@ get_vs30 : get_vs30.o
 
 clean :
 	rm -f ${OBJS} *.o
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

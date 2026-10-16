@@ -1,0 +1,14 @@
+# AR: My settings for MareNostrum 5. I replace the Cray compilers (cc, ftn) with the MPI wrappers.
+# AR: I force the GCC backend. Intel icx and ifx reject the old K&R C and need Intel-only runtime libraries.
+export I_MPI_CC = gcc
+export I_MPI_F90 = gfortran
+CC = mpicc
+FC = mpif90
+# AR: -N 132 is Cray-specific; use gfortran/Intel portable equivalent
+FFLAGS = ${UFLAGS} -ffixed-line-length-132
+
+# AR: Ensure ../bin/ exists before the cp in the emod3d-mpi recipe runs
+emod3d-mpi: | ../bin/
+
+../bin/:
+	mkdir -p $@

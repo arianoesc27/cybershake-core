@@ -1,0 +1,9 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for SgtTest
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: Compilers.mk default uses MY_CC/MY_FC from hostname detection.
+# AR: MN5 hostname is not recognized by Compilers.mk so it falls through to
+# AR: the default MY_CC=gcc, MY_FC=g77. Override FC to gfortran (g77 not available).
+CC = gcc
+FC = gfortran

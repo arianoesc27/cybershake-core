@@ -1,0 +1,16 @@
+# AR: MareNostrum 5 (BSC) override, use standard compilers instead of whatever the base
+# AR: config file picks
+CC = gcc
+FC = gfortran
+
+# AR: I found the same problem I already fixed in a couple of other Makefiles in this
+# AR: project. The original "all" target copies the built program into a ../bin folder, but
+# AR: never creates that folder first, so on a fresh checkout, where the folder doesn't
+# AR: exist yet, the copy silently fails and the program isn't where it should be. I
+# AR: redefine "all" here just to add the missing "create the folder" step first.
+all: $(TARGETS)
+	mkdir -p ../bin
+	for TARGET in $(TARGETS); do \
+		rm -rf ../bin/$$TARGET ; \
+		cp $$TARGET ../bin ; \
+	done

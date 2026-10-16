@@ -1,0 +1,65 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for MergeIM
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: SCEC's makefile has CC and FC the other way round, which is how Cray names them. I set them right for MN5.
+CC = gcc
+FC = gfortran
+
+# AR: duration.c uses Python C API at compile AND link time
+PYTHON_INC  = -I/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/include/python3.13
+PYTHON_LIBS = -L/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/lib -lpython3.13
+LDLIBS += $(PYTHON_LIBS)
+
+# AR: duration.o and bsc_missing_funcs.o need two separate fixes.
+# AR: (1) OBJS +=, because SCEC's recipe uses ${OBJS} and not $^, so the files must be in OBJS to be linked.
+# AR:     OBJS uses = (lazy), so additions from -include ARE visible at recipe evaluation time.
+# AR: (2) extra prerequisites for merge_psa, because OBJS += does NOT change the prerequisite list (expanded at
+# AR:     parse time before -include), so make won't build them before linking without this rule.
+OBJS += duration.o bsc_missing_funcs.o integ_diff.o
+merge_psa: duration.o bsc_missing_funcs.o integ_diff.o
+
+duration.o: duration.c
+	$(CC) $(CFLAGS) $(PYTHON_INC) -c -o $@ $<
+
+bsc_missing_funcs.o: bsc_missing_funcs.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+integ_diff.o: integ_diff.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# AR: BBP version. It links against the BBP WccFormat .o files already built, instead of local copies.
+# AR: BBP_DIR must match the installation path; GP_DIR = BBP's gp/ source tree
+BBP_DIR  = /gpfs/projects/bsc115/bsc203748/software/bbp/bbp-22.4.0/bbp
+GP_DIR   = $(BBP_DIR)/src/gp
+WCC_DIR  = $(GP_DIR)/WccFormat/Progs
+# AR: -I$(GP_DIR) needed because function_bbp.h includes "WccFormat/Progs/function.h"
+BBP_INC  = -I$(GP_DIR)
+
+# AR: These three .o files replace the local wcc_tfilter/wcc_add/wcc_resamp_arbdt
+BBP_LINK_OBJS = $(WCC_DIR)/wcc_tfilter_sub.o $(WCC_DIR)/wcc_add_sub.o $(WCC_DIR)/wcc_resamp_arbdt_sub.o
+
+# AR: Objects for merge_psa_bbp. It leaves out wcc_tfilter.o, wcc_add.o, wcc_resamp_arbdt.o and merge.o
+# AR: (replaced by BBP_LINK_OBJS); bsc_missing_funcs.o NOT included here because BBP's
+# AR: wcc_add_sub.o already defines frand, sfrand and zapit, and adding it would give duplicate symbols.
+MERGE_PSA_BBP_OBJS = iofunc.o misc.o fourg.o surfseis_rspectra.o setparm180.o sub_bandpass.o \
+                     integ_diff.o duration.o
+
+FFTW_LIB = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI/lib
+GETPAR_LIB = $(GETPAR)/lib/libget.a
+
+# AR: FFTW needed at link time because BBP wcc_*_sub.o call fftw internally
+BBP_LDLIBS = -lm $(GETPAR_LIB) -L$(FFTW_LIB) -lfftw3f -lfftw3 $(PYTHON_LIBS)
+
+merge_bbp.o: merge_bbp.c
+	$(CC) $(CFLAGS) $(BBP_INC) -c -o $@ $<
+
+merge_psa_bbp.o: merge_psa_bbp.c
+	$(CC) $(CFLAGS) $(BBP_INC) -c -o $@ $<
+
+merge_psa_bbp: merge_psa_bbp.o merge_bbp.o $(MERGE_PSA_BBP_OBJS) $(BBP_LINK_OBJS) $(ROTD_OBJS) | ../bin/
+	$(FC) $(FFLAGS) -o merge_psa_bbp $^ $(BBP_LDLIBS) $(BBP_INC)
+	cp merge_psa_bbp ../bin/
+
+../bin/:
+	mkdir -p $@

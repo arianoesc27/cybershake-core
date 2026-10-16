@@ -1,0 +1,16 @@
+# AR: MareNostrum 5 (BSC) override, use standard compilers and remove a flag specific to
+# AR: a different type of cluster (Cray)
+CC = gcc
+FC = gfortran
+# AR: That removed flag was only needed on Cray systems, not needed here since the source
+# AR: code's lines are a normal length
+FFLAGS = ${UFLAGS}
+
+# AR: Same missing "create the folder first" fix as in the other Makefiles in this
+# AR: project. The original "gcproj" target copies the built program into a ../bin folder
+# AR: that may not exist yet on a fresh checkout, so I redefine it here just to create that
+# AR: folder first.
+gcproj : gcproj.o gcproj.c ${COBJS} ${FOBJS}
+	${CC} -o gcproj gcproj.o ${LDLIBS}
+	mkdir -p ../bin
+	cp $(BIN_LIST) ../bin/

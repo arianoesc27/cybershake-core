@@ -38,3 +38,5 @@ ${OBJS} : ${HEADS}
 
 clean :
 	-rm -f ${OBJS}
+
+-include Makefile.bsc-mn5

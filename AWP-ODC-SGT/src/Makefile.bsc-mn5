@@ -1,0 +1,17 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for AWP-ODC-SGT (CPU version)
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: I force the GCC backend. Intel ifx rejects the old Fortran and needs Intel-only runtime libraries.
+export I_MPI_F90 = gfortran
+# AR: Upstream OFLAGS/PFLAGS use PGI/Cray compiler flags not available on MN5.
+# AR: -extend-source is PGI/Intel; gfortran equivalent is -ffixed-line-length-132.
+OFLAGS = mpif90 -O3 -ffixed-line-length-132 -c -o
+PFLAGS = mpif90 -O3 -ffixed-line-length-132 -o
+
+# AR: The FPMPI profiling library is not on MN5, so I clear these flags.
+FPMPI_POST_LINK_OPTS =
+FPMPI_INCLUDE_OPTS   =
+
+# AR: LIB path not applicable on MN5 (was pointing to NICS iobuf)
+LIB =

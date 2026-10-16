@@ -49,3 +49,6 @@ get_grid_values: get_grid_values.o $(COBJS) $(FOBJS)
 
 clean:
 	rm -rf *.o $(TARGETS)
+
+# AR: My settings for MareNostrum 5. On other systems this file does not exist and make skips it.
+-include Makefile.bsc-mn5

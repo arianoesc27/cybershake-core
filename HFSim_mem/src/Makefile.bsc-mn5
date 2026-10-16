@@ -1,0 +1,78 @@
+# AR: MareNostrum 5 (BSC) site-specific overrides for HFSim_mem
+# AR: Include this file by adding "-include Makefile.bsc-mn5" at the end of makefile
+# AR: This file is mine, for MareNostrum 5 only. It is not in SCEC's repository.
+
+# AR: I use RupGen 5.5.2, the same as Frontera. SCEC's summit makefile uses 5.4.2.
+RUPGEN_DIR = ../../RuptureCodes/RupGen-api-5.5.2
+
+# AR: UCVM v25.7.1 installed from source at BSC
+UCVM_HOME  = /gpfs/projects/bsc115/bsc203748/software/ucvm/install
+# AR: ucvm_interp.h and ucvm_model_elygtl.h are in the UCVM source tree, not in install/include
+# AR: retrieve_vs.c includes both, so UCVM_SRC/src/ucvm has to be in the include path.
+UCVM_SRC   = /gpfs/projects/bsc115/bsc203748/software/ucvm
+ETREE_HOME = ${UCVM_HOME}/lib/euclid3
+PROJ4_HOME = ${UCVM_HOME}/lib/proj
+VX_HOME    = ${UCVM_HOME}/model/cvmh
+CVMS_HOME  = ${UCVM_HOME}/model/cvms
+CVMSI_HOME = ${UCVM_HOME}/model/cvmsi
+SFCVM_HOME = ${UCVM_HOME}/model/sfcvm
+
+# AR: Embed RPATH so binaries find UCVM shared libs at runtime without LD_LIBRARY_PATH
+UCVM_RPATH = -Wl,-rpath,${UCVM_HOME}/lib \
+             -Wl,-rpath,${VX_HOME}/lib \
+             -Wl,-rpath,${CVMS_HOME}/lib \
+             -Wl,-rpath,${CVMSI_HOME}/lib \
+             -Wl,-rpath,${SFCVM_HOME}/lib \
+             -Wl,-rpath,${PROJ4_HOME}/lib \
+             -Wl,-rpath,${ETREE_HOME}/lib
+
+# AR: UCVM v25.7 renames libgeo → libcvmh; libgctpc is geo-coordinate transform required by cvmh
+# AR: libgrd is UCVM's internal grid library (present in install/lib); needed by libucvm
+# AR: -lstdc++ -ldl required by sfcvm (C++) and for runtime symbol resolution
+UCVMLIBS = -L${UCVM_HOME}/lib -lucvm -lgrd \
+           -L${VX_HOME}/lib -lvxapi -lcvmh -lgctpc \
+           -L${CVMS_HOME}/lib -lcvms \
+           -L${CVMSI_HOME}/lib -lcvmsi \
+           -L${SFCVM_HOME}/lib -lsfcvm -lgeomodelgrids \
+           -L${PROJ4_HOME}/lib -lproj \
+           -L${ETREE_HOME}/lib -letree \
+           -lstdc++ -ldl ${UCVM_RPATH}
+
+UCVMINC = -I${UCVM_HOME}/include -I${UCVM_SRC}/src/ucvm
+
+# AR: BBP 24.5.0-gphf-6.1.1 has hb_high_v6.1.1_sub.o, which v22.4.0 does not have.
+BBP_DIR       = /gpfs/projects/bsc115/bsc203748/software/bbp/bbp-24.5.0/bbp
+GP_DIR        = ${BBP_DIR}/src/gp
+SRF2STOCH_DIR = ${GP_DIR}/StandRupFormat
+WCC_DIR       = ${GP_DIR}/WccFormat/Progs
+HB_HIGH_DIR   = ${GP_DIR}/StochSim/V6.0
+# AR: function_bbp.h includes "WccFormat/Progs/function.h" and "StandRupFormat/function.h"
+# AR: both resolve only with -I${GP_DIR} as the base (not -I${WCC_DIR})
+BBP_INC = -I${GP_DIR}
+
+# AR: I use hb_high v6.1.1 here. The summit and main makefiles use v6.0.3, which is in the old BBP.
+HFSIM_BBP_OBJS = ${WCC_DIR}/wcc_getpeak_sub.o ${WCC_DIR}/wcc_siteamp14_sub.o \
+                 ${HB_HIGH_DIR}/hb_high_v6.1.1_sub.o misc.o iofunc.o \
+                 ${WCC_DIR}/fft1d.o ${WCC_DIR}/integ_diff_sub.o ${WCC_DIR}/wcc_tfilter_sub.o
+
+# AR: Python 3.13 from CyberShake conda env on MN5 (upstream had Python 2.7)
+PYTHON_LIBS = -L/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/lib -lpython3.13 \
+              -Wl,-rpath,/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/lib
+PYTHON_INC  = -I/gpfs/apps/MN5/GPP/MINIFORGE/24.3.0-0/envs/CyberShake/include/python3.13
+
+FFTW_DIR = /gpfs/apps/MN5/GPP/FFTW/3.3.10/GCC/IMPI
+# AR: No memcached on MN5; -lgfortran for C/Fortran mix; rpath for FFTW module path
+LIBS   = -lm ${GETPAR_DIR}/lib/libget.a -L${FFTW_DIR}/lib -lfftw3f -lgfortran \
+         -Wl,-rpath,${FFTW_DIR}/lib
+IFLAGS = -I${GETPAR_DIR}/include -I${RUPGEN_DIR}/include
+LDLIBS = -L${RUPGEN_DIR}/lib -lrupgen ${LIBS} -lstdc++
+
+# AR: Remove -D_USE_MEMCACHED; -DBSC_DISABLE_MEMCACHED guards out set_memcached_server calls
+CFLAGS = ${UFLAGS} ${LF_FLAGS} ${IFLAGS} -DBSC_DISABLE_MEMCACHED
+
+# AR: Ensure ../bin/ exists before any cp step
+../bin/:
+	mkdir -p $@
+
+hf_synth_bbp: | ../bin/
+retrieve_vs: | ../bin/

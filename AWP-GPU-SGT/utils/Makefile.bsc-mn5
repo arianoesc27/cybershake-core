@@ -1,0 +1,7 @@
+# AR: MareNostrum 5 (BSC) override, replace hardcoded paths from a different cluster
+CC = gcc
+FC = gfortran
+BBP_DIR  = /gpfs/projects/bsc115/WPG/Earthquake/CS_2025/cybershake/bbp-22.4.0/bbp
+GETPAR_DIR = ../../Getpar
+GETPAR_LIB = -L${GETPAR_DIR}/getpar/lib -lget
+GETPAR_INC = -I${GETPAR_DIR}/getpar/include
