@@ -114,6 +114,8 @@ void manager_listen(int num_workers, worker_task* task_list, int num_tasks, int 
 	int current_task = 0;
 	//Keep track of the workers and who is working and who is complete
 	int workers_working = 0;
+	//AR: (2026-10-08) How many workers have been told there is no more work, see below.
+	int workers_complete = 0;
 	int* worker_status = check_malloc(sizeof(int)*num_workers);
 	int i;
 	for (i=0; i<num_workers; i++) {
@@ -160,6 +162,9 @@ void manager_listen(int num_workers, worker_task* task_list, int num_tasks, int 
 				if (worker_status[worker_offset]==WORKER_WORKING) {
 					workers_working--;
 				}
+				if (worker_status[worker_offset]!=WORKER_COMPLETE) {
+					workers_complete++;
+				}
 				worker_status[worker_offset] = WORKER_COMPLETE;
 			}
 		} else {
@@ -173,7 +178,14 @@ void manager_listen(int num_workers, worker_task* task_list, int num_tasks, int 
 			sprintf(buf, "%d workers are working on tasks.", workers_working);
 			write_log(buf);
 		}
-		if (workers_working==0) {
+		//AR: (2026-10-08) The loop used to end as soon as no worker was working. When the work
+		//AR: is short, that happens before every worker has asked for its first task. A worker
+		//AR: that asks afterwards blocks forever in its send, nobody is listening any more, and
+		//AR: the job stays alive doing nothing. I saw it happen with 2 ruptures left and 53
+		//AR: workers, 6 of which asked 0.4 s after the manager had left (job 47077852). Every
+		//AR: worker asks at least once and stops when it is told there is no more work, so the
+		//AR: manager now waits until it has told all of them.
+		if (workers_working==0 && workers_complete==num_workers) {
 			if (debug) write_log("All workers complete.");
 			break;
 		}
