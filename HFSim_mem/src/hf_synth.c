@@ -145,7 +145,9 @@ int main(int argc, char** argv) {
 				exit(3);
 			}
 			rg_stats_t stats;
+#ifndef BSC_DISABLE_MEMCACHED
 			set_memcached_server("localhost");
+#endif
 			rupgen_get_num_rv(rup_geom_file, &stats, RUPGEN_UNIFORM_HYPO);
 			for (i=0; i<num_rup_vars; i++) {
 				rup_vars[i].rup_var_id = i;

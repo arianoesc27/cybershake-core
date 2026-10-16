@@ -10,7 +10,9 @@ int main(int argc, char** argv) {
 		printf("Usage: %s <erf id> <src id> <rup id> <output file>\n", argv[0]);
 		exit(1);
 	}
+#ifndef BSC_DISABLE_MEMCACHED
 	set_memcached_server("localhost");
+#endif
         char rupture_file[512];
         int erf = atoi(argv[1]);
 	int src = atoi(argv[2]);

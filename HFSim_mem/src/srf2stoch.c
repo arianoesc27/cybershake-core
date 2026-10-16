@@ -37,7 +37,9 @@ if (srf_file[0]!='\0') {
    read_srf(&srf,srf_file,inbin);
 } else {
    rg_stats_t stats;
+#ifndef BSC_DISABLE_MEMCACHED
    set_memcached_server("localhost");
+#endif
    rupgen_genslip(rup_geom_file, slip_id, hypo_id, &stats, &srf, RUPGEN_UNIFORM_HYPO, dt);
    if (debug) {
 	   char outfile[256];

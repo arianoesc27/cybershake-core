@@ -57,7 +57,9 @@ int main(int argc, char** argv) {
 	char rupture_root[256];
 	get_rupture_root(rupture_root);
 
+#ifndef BSC_DISABLE_MEMCACHED
     set_memcached_server("localhost");
+#endif
     char* rupture_file = malloc(sizeof(char)*256);
     sprintf(rupture_file, "%s/Ruptures_erf%d/%d/%d/%d_%d.txt", rupture_root, erf_id, src, rup, src, rup);
     char outfile[256];

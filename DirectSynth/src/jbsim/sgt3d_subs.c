@@ -3,7 +3,14 @@
 #include "structure.h"
 #include "function.h"
 
+/* AR: memcached is not available on MN5. When BSC_DISABLE_MEMCACHED is set, this uses a
+ * AR: stub instead of the library. The stub always reports a cache miss, so the
+ * AR: program just falls through to reading from disk instead, same result, just slower. */
+#ifdef BSC_DISABLE_MEMCACHED
+#include "memcached_stub.h"
+#else
 #include <libmemcached/memcached.h>
+#endif
 
 //void timeshift_sgt(float *seis,int ntout,float *gf,struct sgtheader *gfh,int ntsum,float *t0,float *bt0,int nsgt);
 void timeshift_sgt(float* seis, int ntout, float* gf, int ntsum, float* t0, float* bt0, struct sgtparams* sgtpar, int srf_index);
@@ -802,7 +809,11 @@ if(eqindx->indx == sgtindx[ip].indx)   /* great, exact match, this will be easy 
    }
 else  /* more difficult, find up to 4 SGT that bracket point in range and depth */
    {
-   if (debug) {
+   //AR: This message prints every time an exact SGT match isn't found, which happens
+   //AR: millions of times for a large rupture. I moved it from the normal debug level to a
+   //AR: higher one so that everyday runs still get useful progress logging without paying
+   //AR: the cost of printing this line so many times.
+   if (debug>=2) {
 	char buf[512];
 	sprintf(buf, "No exact match found for %ld.\n", eqindx->indx);
 	write_log(buf);
