@@ -35,6 +35,7 @@ import org.hibernate.SessionFactory;
 import org.hibernate.StatelessSession;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.exception.ConstraintViolationException;
+import org.hibernate.exception.LockAcquisitionException;
 import org.hibernate.query.NativeQuery;
 import org.hibernate.type.StandardBasicTypes;
 
@@ -50,6 +51,7 @@ import data.RunID;
 import data.SAPeriods;
 import data.SARuptureFromRuptureVariationFile;
 import data.SARuptureVariation;
+import data.VerticalRSPEntry;
 
 public class RuptureVariationFileInserter {
 	
@@ -67,7 +69,10 @@ public class RuptureVariationFileInserter {
 	HashMap<Integer, Integer> periodIndexToIDMap = null;
 	HashMap<Float, Integer> rd100periodValueToIDMap = null;
 	HashMap<Float, Integer> rd50periodValueToIDMap = null;
-	
+	//AR: New (2026-08-10), same pattern as rd50periodValueToIDMap above, for the vertical
+	//AR: component's own IM_Type_Component ('Z').
+	HashMap<Float, Integer> vertRspPeriodValueToIDMap = null;
+
     private ArrayList<Integer> desiredPeriodsIndicesX = null;
 	HashMap<Integer, Integer> periodIndexToIDMapX = null;
     private ArrayList<Integer> desiredPeriodsIndicesY = null;
@@ -174,6 +179,45 @@ public class RuptureVariationFileInserter {
 //		sessFactory = new Configuration().configure(hibernate_cfg_filename).buildSessionFactory();
 	}
 
+	//AR: I found a bug when running 10 sites at the same time, all writing to the same
+	//AR: database file. One site failed because the database was temporarily locked by
+	//AR: another process writing to it at the same instant, and this class had no retry
+	//AR: logic, so that one lock killed the whole insertion process, including everything
+	//AR: still queued up behind it. I already fixed the same kind of problem on the Python
+	//AR: side of the workflow. The fix here is the same idea. If the database is locked or
+	//AR: busy, that is a temporary condition worth waiting a moment and trying again, so I
+	//AR: retry those cases. Any other kind of error is a true problem and gets raised right
+	//AR: away like before.
+	private void flushWithRetry(Session sess) {
+		boolean done = false;
+		while (!done) {
+			try {
+				sess.flush();
+				done = true;
+			} catch (LockAcquisitionException e) {
+				System.err.println("Database locked during flush, retrying: " + e.getMessage());
+				try { Thread.sleep(500); } catch (InterruptedException ie) { /* ignore */ }
+			}
+		}
+	}
+
+	//AR: Same locked-database issue as the flush retry above, but this one covers the
+	//AR: final commit at the end of inserting everything. When a commit fails because the
+	//AR: database is busy, the transaction is not rolled back, so simply retrying the
+	//AR: commit itself is the correct way to recover.
+	private void commitWithRetry(Session sess) {
+		boolean done = false;
+		while (!done) {
+			try {
+				sess.getTransaction().commit();
+				done = true;
+			} catch (LockAcquisitionException e) {
+				System.err.println("Database locked during commit, retrying: " + e.getMessage());
+				try { Thread.sleep(500); } catch (InterruptedException ie) { /* ignore */ }
+			}
+		}
+	}
+
 	public void performInsertions() {
 //		retrieveSiteIDFromDB();
 		if (verbose) {
@@ -199,12 +243,14 @@ public class RuptureVariationFileInserter {
 			insertRotDFiles(sess, true);
 		} else if (fileMode==Mode.DURATION) {
 			insertDurationFiles(sess);
+		} else if (fileMode==Mode.VERTRSP) {
+			insertVertRspFiles(sess);
 		} else {
 			insertAllRuptureVariationFiles(sess);
 
 		}
 		if (sess.getTransaction().isActive()) {
-			sess.getTransaction().commit();
+			commitWithRetry(sess);
 		}
 		sess.close();
 	}
@@ -268,7 +314,7 @@ public class RuptureVariationFileInserter {
 				if ((counter+1)%25==0) System.gc();
 				if ((counter+1)%5==0) {
 				// flush a batch of inserts and release memory
-					sess.flush();
+					flushWithRetry(sess);
 					sess.clear();
 				}
 				counter++;
@@ -361,7 +407,7 @@ public class RuptureVariationFileInserter {
 				if ((counter+1)%50==0) {
 				// flush a batch of inserts and release memory
 					start = System.currentTimeMillis();
-					sess.flush();
+					flushWithRetry(sess);
 					sess.clear();
 					end = System.currentTimeMillis();
 					dbCommit += (end-start);
@@ -382,7 +428,143 @@ public class RuptureVariationFileInserter {
 		System.out.println("DB Commit (sec): " + (dbCommit/1000));
 	}
 
-	
+	//AR: I added this for the 3-component (vertical) extension. It reads files the same way
+	//AR: insertRotDFiles above does, a header, then a record count, then that many
+	//AR: fixed-size records until the end of the file, but reading the
+	//AR: "VerticalRSP_<site>_<run>_<src>_<rup>.rsp" files instead of ".rotd" files. Each
+	//AR: record here is just {period, value}, smaller than a RotD record, since the
+	//AR: vertical response is a single spectrum with no rotation angles involved. This is
+	//AR: genuinely new code I wrote, not something copied from an existing insertion path.
+	private void insertVertRspFiles(Session sess) {
+		int counter = 0;
+		for (File f: totalFilesList) {
+			try {
+				/*Each VerticalRSP file has
+				 * <PSA header for RV1>
+				 * <num of vertical response entries>
+				 * <VerticalRSP entry 1>
+				 * <VerticalRSP entry 2>
+				 * ...
+				 * <PSA header for RV2>
+				 */
+				System.out.println("Processing file " + f.getName());
+				FileInputStream stream = new FileInputStream(f);
+				BSAHeader head = new BSAHeader();
+
+				try {
+					while (true) {
+						int ret = head.parse(stream);
+						if (ret==-1) break;
+						//Check the site name
+						if (!head.siteString.equals(run_ID.getSiteName())) {
+							System.err.println("Header in " + f.getName() + " lists site name as " + head.siteString + ", but the site for run ID " + run_ID.getRunID() + " is " + run_ID.getSiteName());
+							System.exit(-6);
+						}
+						ArrayList<VerticalRSPEntry> entries = new ArrayList<VerticalRSPEntry>();
+						//Get the # of periods
+						byte[] period_bytes = new byte[4];
+						stream.read(period_bytes);
+						byte[] out_period_bytes = SwapBytes.swapByteArrayToByteArrayForFloats(period_bytes);
+						DataInputStream ds = new DataInputStream(new ByteArrayInputStream(out_period_bytes));
+						int num_periods = ds.readInt();
+						//8 bytes per VerticalRSP entry
+						byte[] vertRspEntryBytes = new byte[num_periods*8];
+						stream.read(vertRspEntryBytes);
+						byte[] outByteArray = SwapBytes.swapByteArrayToByteArrayForFloats(vertRspEntryBytes);
+						ds = new DataInputStream(new ByteArrayInputStream(outByteArray));
+						for (int i=0; i<num_periods; i++) {
+							VerticalRSPEntry vre = new VerticalRSPEntry();
+							vre.populate(ds);
+							entries.add(vre);
+						}
+						ds.close();
+						insertVertRspRupture(entries, head, sess);
+					}
+				} catch (IOException ie) {
+					ie.printStackTrace();
+				}
+
+				if ((counter+1)%50==0) {
+					System.gc();
+					flushWithRetry(sess);
+					sess.clear();
+				}
+				counter++;
+			} catch (IOException ioe) {
+				System.err.println("Error reading from file " + pathName);
+				ioe.printStackTrace();
+			} catch (ConstraintViolationException ex) {
+				ex.printStackTrace();
+				System.err.println("Offending SQL statement was: " + ex.getSQL());
+				System.exit(-2);
+			}
+		}
+	}
+
+	//AR: This works the same way as insertRotdRupture's RotD50 branch above, but it looks
+	//AR: up the value type using 'Z' instead of 'RotD50'/'RotD100', the same convention
+	//AR: already used for 'X'/'Y'. I don't need any special handling for PGA/PGV here,
+	//AR: since DirectSynth's own vertical response calculation never produces those values
+	//AR: for the vertical component, so they simply never show up in these entries.
+	private void insertVertRspRupture(ArrayList<VerticalRSPEntry> entries, BSAHeader head, Session sess) {
+		Session vertRspSession = sessFactory.openSession();
+
+		String vertRspPrefix = "SELECT IM_Type_ID FROM IM_Types WHERE IM_Type_Measure = 'spectral acceleration' AND IM_Type_Component = 'Z' AND ";
+
+		if (vertRspPeriodValueToIDMap==null) {
+			vertRspPeriodValueToIDMap = new HashMap<Float, Integer>();
+			for (int i=0; i<desiredPeriods.size(); i++) {
+				if (desiredPeriods.get(i)==PGA_period || desiredPeriods.get(i)==PGV_period) {
+					continue;
+				}
+				SQLQuery query = vertRspSession.createSQLQuery(vertRspPrefix + "IM_Type_Value = " + desiredPeriods.get(i)).addScalar("IM_Type_ID", StandardBasicTypes.INTEGER);
+				System.out.println(query.getQueryString());
+				List results = query.list();
+				if (results.isEmpty()) {
+					System.err.println("No IM_Type_ID found for vertical response (IM_Type_Component='Z'), period " + desiredPeriods.get(i) + ". Has that period's IM_Types row been created yet?");
+					System.exit(1);
+				}
+				int typeID = (Integer)(results.get(0));
+				vertRspPeriodValueToIDMap.put(desiredPeriods.get(i).floatValue(), typeID);
+				System.out.println("Adding IM_Type_ID " + typeID + " to list.");
+			}
+		}
+		vertRspSession.close();
+
+		if (!sess.getTransaction().isActive()) {
+			sess.beginTransaction();
+		}
+
+		for (VerticalRSPEntry e: entries) {
+			if (vertRspPeriodValueToIDMap.containsKey(e.period)) {
+				PeakAmplitude pa = new PeakAmplitude();
+				PeakAmplitudePK paPK = new PeakAmplitudePK();
+				paPK.setRun_ID(run_ID.getRunID());
+				paPK.setSource_ID(head.source_id);
+				paPK.setRupture_ID(head.rupture_id);
+				paPK.setRup_Var_ID(head.rup_var_id);
+				paPK.setIM_Type_ID(vertRspPeriodValueToIDMap.get(e.period));
+				pa.setPaPK(paPK);
+				float rsp = e.rsp;
+				if (convertGtoCM) {
+					rsp = e.rsp * G_TO_CM_2;
+				}
+				//AR: I did not add a "value too small, abort" check here like
+				//AR: insertRotdRupture has, since that check's threshold was calibrated to
+				//AR: RotD's typical values, and I don't yet have vertical-response
+				//AR: data to know what a reasonable threshold would be here. Worth revisiting
+				//AR: once I have vertical-response results to compare against.
+				pa.setIM_Value(rsp);
+				try {
+					sess.save(pa);
+				} catch (NonUniqueObjectException nuoe) {
+					System.err.println("ERROR:  found duplicate entry for run_id " + paPK.getRun_ID() + ", source " + paPK.getSource_ID() + " rupture " + paPK.getRupture_ID() + " rup_var " + paPK.getRup_Var_ID() + " IM_Type " + paPK.getIM_Type_ID() + ".  Aborting.");
+					System.exit(2);
+				}
+			}
+		}
+	}
+
 	private void insertRuptureVariationFilesWithHeader(Session sess) {
 		int counter = 0;
 		//Set this now.  Do it.
@@ -454,7 +636,7 @@ public class RuptureVariationFileInserter {
 				if ((counter+1)%25==0) System.gc();
 				if ((counter+1)%5==0) {
 				// flush a batch of inserts and release memory
-					sess.flush();
+					flushWithRetry(sess);
 					sess.clear();
 				}
 				counter++;
@@ -496,7 +678,7 @@ public class RuptureVariationFileInserter {
 				insertRupture(saRuptureWithSingleRupVar, sess, false);				
 				if (counter%250==0) System.gc();
 				if (counter%100==0) {
-					sess.flush();
+					flushWithRetry(sess);
 					sess.clear();
 				}
 //				for (Float period : saRuptureWithSingleRupVar.rupVar.geomAvgComp.periods) {
@@ -525,7 +707,7 @@ public class RuptureVariationFileInserter {
 					if ((i+1)%250==0) System.gc();
 					if ((i+1)%50==0) {
 					// flush a batch of inserts and release memory
-						sess.flush();
+						flushWithRetry(sess);
 						sess.clear();
 					}
 				} catch (Exception e) {
@@ -1072,7 +1254,7 @@ public class RuptureVariationFileInserter {
 				
 				/*if ((rupVarIter+1)%50==0) {
 					// flush a batch of inserts and release memory
-					sess.flush();
+					flushWithRetry(sess);
 					sess.clear();
 				}*/
 			}

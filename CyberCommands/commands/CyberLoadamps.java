@@ -25,7 +25,12 @@ public class CyberLoadamps {
 	private static final String NO_RUNID_OPTION_MESSAGE = "Please use -run to specify the RunID";
 	private static final String NO_PERIODS_OPTION_MESSAGE = "Please use -periods to specify the periods to insert";
 
-	public enum Mode {BSA, ZIP, HEAD, ROTD, DURATION, ROTD50};
+	//AR: I added the new VERTRSP mode. DirectSynth already writes a
+	//AR: "VerticalRSP_<site>_<run>_<src>_<rup>.rsp" file whenever a run has all 3 components, but
+	//AR: nothing in this codebase ever read that file back to put it into the database. This
+	//AR: mode does that. I checked and this is genuinely new code, not something that already
+	//AR: existed somewhere else that I just copied.
+	public enum Mode {BSA, ZIP, HEAD, ROTD, DURATION, ROTD50, VERTRSP};
 	/**
 	 * @param args
 	 */
@@ -42,6 +47,11 @@ public class CyberLoadamps {
         Option periods = OptionBuilder.withArgName("periods").hasArg().withDescription("Comma-delimited periods to insert").create("periods");
         Option rotd = new Option("r", "Read rotd files (instead of bsa.)");
         Option rotd50 = new Option("rdf", "Read rotd files, but only insert RotD50 (not RotD100)");
+        //AR: I added this option to read the VerticalRSP_*.rsp files, which hold a single
+        //AR: response spectrum for the vertical (Z) component. It gets stored under its own
+        //AR: label 'Z', the same way 'X' and 'Y' are already stored separately from
+        //AR: 'RotD50'/'RotD100'.
+        Option vertRsp = new Option("vr", "Read VerticalRSP files (vertical component response spectra).");
         Option duration = new Option("u", "Read duration files (instead of bsa.)");
         Option convert = new Option("c", "Convert values from g to cm/sec^2");
         Option force = new Option("f", "Don't apply value checks to insertion values; use with care!.");
@@ -54,6 +64,7 @@ public class CyberLoadamps {
         fileGroup.addOption(rotd);
         fileGroup.addOption(duration);
         fileGroup.addOption(rotd50);
+        fileGroup.addOption(vertRsp);
         
 		options.addOption(sgt);
 		options.addOption(path);
@@ -136,6 +147,8 @@ public class CyberLoadamps {
 					m = Mode.DURATION;
 				} else if (cmd.hasOption("rdf")) {
 					m = Mode.ROTD50;
+				} else if (cmd.hasOption("vr")) {
+					m = Mode.VERTRSP;
 				}
 				
 				boolean convertGtoCM = false;

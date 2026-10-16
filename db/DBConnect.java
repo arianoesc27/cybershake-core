@@ -128,7 +128,13 @@ public class DBConnect
       try
       {
         //stat.close();
-        conn.close();
+        //AR: closing after every single insertData() call is fine for MySQL (cheap reconnect to a
+        //AR: live server) but is very slow for SQLite, since each open and close re-reads
+        //AR: the whole file and re-does journal setup on GPFS. AddPointsToDB.java calls this once
+        //AR: per point (tens of thousands of times for a single rupture set), which made a bulk
+        //AR: load effectively unbounded in time. Left open for SQLite; original MySQL behavior
+        //AR: unchanged.
+        if (!isSQLite) conn.close();
       } catch (Exception e)
       {
         e.printStackTrace();
@@ -197,7 +203,10 @@ public class DBConnect
 
     if(conn!=null && !conn.isClosed()) return ;
 //    String drivers = "org.gjt.mm.mysql.Driver";
-    String drivers = "com.mysql.jdbc.Driver";
+    //AR: this was fixed to the MySQL driver even in SQLite mode. It is the same cause I already fixed
+    //AR: in CyberCommands/data/RunID.java. Without this, isSQLite connections fail outright unless
+    //AR: a MySQL driver jar happens to also be on the classpath (harmless but misleading).
+    String drivers = isSQLite ? "org.sqlite.JDBC" : "com.mysql.jdbc.Driver";
     //System.out.println("dbname is:"+dbName);
     String url = "jdbc:mysql://"+hostName+":"+port+"/"+dbName+"?serverTimezone=America/Los_Angeles";
     String username = "scottcal";

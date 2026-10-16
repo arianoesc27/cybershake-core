@@ -34,6 +34,8 @@ public class BSAFileUtil {
 			createTotalFileListRotd(saFile);
 		} else if (fileMode==Mode.DURATION) {
 			createTotalFileListDuration(saFile);
+		} else if (fileMode==Mode.VERTRSP) {
+			createTotalFileListVertRsp(saFile);
 		}
 		return totalFileList;
 		
@@ -101,7 +103,47 @@ public class BSAFileUtil {
 			return;
 		}
 	}
-	
+
+	//AR: This is an exact copy of createTotalFileListRotd above, just pointed at
+	//AR: VerticalRSPFilenameFilter instead of RotDFilenameFilter, with the same support for
+	//AR: per-source subdirectories that the RotD version has.
+	private static void createTotalFileListVertRsp(File saFile) {
+		File[] vertRspList;
+		File[] vertRspDirsList = null;
+		if (saFile.isDirectory()) {
+			vertRspList = saFile.listFiles(new VerticalRSPFilenameFilter());
+			//Support for directory hierarchy
+			vertRspDirsList = saFile.listFiles(new NonCVSDirFileFilter());
+		} else {
+			//just inserting 1 file
+			vertRspList = new File[1];
+			vertRspList[0] = saFile;
+		}
+
+		if (isInDebugMode) {
+			System.out.println("Printing all files in " + saFile.getName());
+			for (int i=0; i<vertRspList.length; i++) {
+				System.out.println(vertRspList[i]);
+			}
+		}
+
+		totalFileList.addAll(Arrays.asList(vertRspList));
+		for (int filesIndex=0; filesIndex < vertRspList.length; filesIndex++) {
+			if (isInDebugMode) {
+				System.out.println("\tFilename: " + vertRspList[filesIndex].getName());
+			}
+			totalFilenameList.add(vertRspList[filesIndex].getName());
+		}
+		if (vertRspDirsList != null) {
+			for (int dirsIndex=0; dirsIndex<vertRspDirsList.length; dirsIndex++) {
+				createTotalFileListVertRsp(vertRspDirsList[dirsIndex]);
+			}
+		}
+		else {
+			return;
+		}
+	}
+
 	private static void createTotalFileListZipHelper(File saFile) {
 		File[] zipfilesList;
 		File[] sadirsList;

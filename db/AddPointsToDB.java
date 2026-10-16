@@ -13,34 +13,48 @@ public class AddPointsToDB {
 	private static final String DB = "CyberShake";
 	
 	public static void main(String[] args) {
-		if (args.length==2) {
-			erf = args[0];
-			String directory = args[1];
-			populate(directory);
-			return;
-		} else if (args.length<4) {
-			System.out.println("Usage: AddPointsToDB <ERF_ID> <Source_ID> <Rupture_ID> <filename>");
+		if (args.length<2) {
+			System.out.println("Usage: AddPointsToDB <ERF_ID> <directory> [server]");
+			System.out.println("       AddPointsToDB <ERF_ID> <Source_ID> <Rupture_ID> <filename> [server]");
+			System.out.println("  server defaults to " + DB_SERVER + " (MySQL); pass sqlite:<path> for SQLite.");
 			System.exit(0);
 		}
-		
+
 		erf = args[0];
-		String source = args[1];
-		String rupture = args[2];
-		String filename = args[3];
-		
-		dbc = new DBConnect(DB_SERVER,DB);
-		
-		populate(source, rupture, filename);
+		//AR: (2026-07-03) Optional last server argument, for SQLite. The original code only ever
+		//AR: talked to the MySQL production DB_SERVER written in the code. Kept that as the default so
+		//AR: existing SCEC invocations (no server arg) are unaffected.
+		boolean isSQLite = false;
+		String server = DB_SERVER;
+		String lastArg = args[args.length-1];
+		if (lastArg.indexOf("sqlite:") == 0) {
+			server = lastArg;
+			isSQLite = true;
+		}
+		//AR: dbc has to be built before either populate() runs. The original code left
+		//AR: it null in the 2-arg (directory) mode, which threw a NullPointerException as soon as
+		//AR: it tried to insert a point. Building it once here, up front, fixes both modes.
+		dbc = new DBConnect(server, DB, isSQLite);
+
+		int numArgs = isSQLite ? args.length-1 : args.length;
+		if (numArgs==2) {
+			populate(args[1]);
+		} else if (numArgs<4) {
+			System.out.println("Usage: AddPointsToDB <ERF_ID> <Source_ID> <Rupture_ID> <filename> [server]");
+			System.exit(0);
+		} else {
+			populate(args[1], args[2], args[3]);
+		}
 		dbc.closeConnection();
 	}
-	
+
 	private static void populate(String directory) {
 		File dir = new File(directory);
 		if (!dir.isDirectory()) {
 			System.err.println(directory + " is not a directory.");
 			System.exit(1);
 		}
-		
+
 		File[] files = dir.listFiles();
 		for (int i=0; i<files.length; i++) {
 			String name = files[i].getName();

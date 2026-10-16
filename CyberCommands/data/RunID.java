@@ -62,15 +62,17 @@ public class RunID {
 
 	private void createConnection() {
 		if (connection==null) {
-			String drivers = "com.mysql.cj.jdbc.Driver";
-			//Have to add serverTimezone now; assume 
+			// AR: driver class was hardcoded to MySQL even when isSQLite, so this always
+			// tried to load com.mysql.cj.jdbc.Driver first and failed if that jar wasn't present.
+			String drivers = isSQLite ? "org.sqlite.JDBC" : "com.mysql.cj.jdbc.Driver";
+			//Have to add serverTimezone now; assume
 			String url = "jdbc:mysql://"+HOSTNAME+":"+PORT+"/"+DB_NAME + "?serverTimezone=America/Los_Angeles";
 			//System.out.println("Connecing with url " + url);
 			if (isSQLite) {
 				//Use SQLite drivers
 				url = "jdbc:" + HOSTNAME;
 			}
-	    
+
 			try {
 				Class.forName(drivers).newInstance();
 			} catch (Exception ex) {

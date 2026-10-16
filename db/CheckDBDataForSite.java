@@ -208,8 +208,9 @@ public class CheckDBDataForSite {
             	}
                 
             	while (!rupVarSet.isAfterLast()) {
-            		int src_id = rupVarSet.getInt("V.Source_ID");
-            		int rup_id = rupVarSet.getInt("V.Rupture_ID");
+            		// AR: SQLite JDBC driver drops table aliases from column labels
+            		int src_id = rupVarSet.getInt(isSQLite ? "Source_ID" : "V.Source_ID");
+            		int rup_id = rupVarSet.getInt(isSQLite ? "Rupture_ID" : "V.Rupture_ID");
             		int[] src_rup = {src_id, rup_id};
             		if (rupturesIncluded.contains(src_rup)) {
             			rupVarsExpected += rupVarSet.getInt("count(*)");
@@ -369,7 +370,11 @@ public class CheckDBDataForSite {
     		}
     	   	rupVarTreeSet = new TreeSet<SourceRuptureVar>();
         	while ((isSQLite && nextRow) || (!isSQLite && !rupVarSet.isAfterLast())) {
-        		SourceRuptureVar sr = new SourceRuptureVar(rupVarSet.getInt("V.Source_ID"), rupVarSet.getInt("V.Rupture_ID"), rupVarSet.getInt("V.Rup_Var_ID"));
+        		// AR: SQLite JDBC driver drops table aliases from column labels
+        		SourceRuptureVar sr = new SourceRuptureVar(
+        				rupVarSet.getInt(isSQLite ? "Source_ID" : "V.Source_ID"),
+        				rupVarSet.getInt(isSQLite ? "Rupture_ID" : "V.Rupture_ID"),
+        				rupVarSet.getInt(isSQLite ? "Rup_Var_ID" : "V.Rup_Var_ID"));
         		rupVarTreeSet.add(sr);
         		nextRow = rupVarSet.next();
         	}
@@ -447,11 +452,14 @@ public class CheckDBDataForSite {
     			}
     		}
     		
-    		//write any stragglers
-    		bw.write(listForRupture.get(0) + " " + (listForRupture.size()-1) + "\n");
-			for (int i=1; i<listForRupture.size(); i++) {
-				bw.write(listForRupture.get(i) + "\n");
-			}
+    		// AR: listForRupture is empty when no ruptures are missing (e.g. PeakAmplitudes
+    		// has extra rows for another IM type); skip stragglers instead of indexing empty list
+    		if (!listForRupture.isEmpty()) {
+    			bw.write(listForRupture.get(0) + " " + (listForRupture.size()-1) + "\n");
+    			for (int i=1; i<listForRupture.size(); i++) {
+    				bw.write(listForRupture.get(i) + "\n");
+    			}
+    		}
     		
     		bw.flush();
     		bw.close();
