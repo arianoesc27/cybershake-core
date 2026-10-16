@@ -243,7 +243,19 @@ for (i=0; i<num_rup_vars; i++) {
 		int seed = find_seed(header->source_id, header->rupture_id, rup_vars[i].rup_var_id, num_rv_infos, rvinfo_array);
 		float rvfrac = find_rvfrac(header->source_id, header->rupture_id, rup_vars[i].rup_var_id, num_rv_infos, rvinfo_array);
 		params_flag = 1;
-		sprintf(params, "%s seed=%d rvfrac=%f use_unmodified_seed=1", params, seed, rvfrac);
+		/* AR: (2026-10-02) rvfrac is sent to genslip only when it is positive, the same check
+		   the global rvfrac has a few lines above. task_manager.c says that rvfrac is set to
+		   -1 in the rv_info file when it should not be used, but it used to be sent always,
+		   and genslip takes the number as it is. With -1 the rupture velocity is -1 times Vs,
+		   the rupture time routine (wfront2d) fails, and about a third of the SRF points are
+		   left with tinit=1e10, which sum_sgt then drops from the seismogram. Without rvfrac
+		   in params genslip uses its default of 0.8. Suggested as a patch for SCEC. With
+		   this guard the tinit=1e10 points disappear from the SRF of every variation. */
+		if (rvfrac > 0.0) {
+			sprintf(params, "%s seed=%d rvfrac=%f use_unmodified_seed=1", params, seed, rvfrac);
+		} else {
+			sprintf(params, "%s seed=%d use_unmodified_seed=1", params, seed);
+		}
 		if (debug) {
 			char buf[256];
 			sprintf(buf, "Using passed-in seed=%d, rvfrac=%f for src %d, rup %d, rv %d", seed, rvfrac, header->source_id, header->rupture_id, rup_vars[i].rup_var_id);

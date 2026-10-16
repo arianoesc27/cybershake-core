@@ -320,7 +320,19 @@ int main(int argc, char** argv) {
 					int seed = rup_vars[rv].seed;
 					float rvfrac = rup_vars[rv].rvfrac;
 					char params[256];
-					sprintf(params, "seed=%d rvfrac=%f use_unmodified_seed=1", seed, rvfrac);
+					/* AR: (2026-10-02) rvfrac is sent to genslip only when it is positive. hfsim()
+					   in hfsim_bbp.c already handles a value that is not positive by computing
+					   one, but genslip takes the number as it is. With -1 the rupture velocity
+					   is -1 times Vs, the rupture time routine (wfront2d) fails, about a third
+					   of the SRF points are left with tinit=1e10, and every subfault of the
+					   high-frequency synthesis then starts at sample 1. Without rvfrac in
+					   params genslip uses its default of 0.8. Suggested as a patch for SCEC.
+					   With this guard no subfault starts at sample 1 any more. */
+					if (rvfrac > 0.0) {
+						sprintf(params, "seed=%d rvfrac=%f use_unmodified_seed=1", seed, rvfrac);
+					} else {
+						sprintf(params, "seed=%d use_unmodified_seed=1", seed);
+					}
 					if (risetime_coef > 0) {
 						char risetime_str[64];
 						sprintf(risetime_str, " risetime_coef=%f", risetime_coef);
