@@ -27,7 +27,14 @@ float *mlon, *mlat, *mdep;
 float *vp_buf, *vs_buf, *rho_buf, *buf;
 vp_buf = vs_buf = rho_buf = buf = NULL;
 
-char* config_filename = "/lustre/orion/proj-shared/geo156/CyberShake/software/UCVM/ucvm_22.7.0_withSFCVM/conf/ucvm.conf";
+/* AR: I read the config file path from this environment variable, since it's different on
+   every cluster, so it needs to be set before running this program. */
+char* config_filename = NULL;
+if ((config_filename = getenv("UCVM_CONF_FILE")) == NULL) {
+    fprintf(stderr, "Error: UCVM_CONF_FILE environment variable not set.\n");
+    MPI_Finalize();
+    exit(1);
+}
 
 int fdw, i, j, k, nn, newn, s;
 int nx, ny, nz, ix, iz, icnt;
@@ -135,6 +142,13 @@ getpar("load_balancing", "d", &load_balancing);
 
 endpar();
 
+//AR: This line used to run AFTER the next step below, which redirects error messages to a
+//AR: file in this directory. On a fresh run, when the directory doesn't exist yet, that
+//AR: redirect step fails and leaves error reporting broken for the rest of the program,
+//AR: which could then crash unpredictably. I moved creating the directory to before that
+//AR: step so it always exists first.
+makedir(logdir);
+
 //For debugging
 sprintf(logfile,"%s/%s-%.4d.log", logdir, logname, my_id);
 freopen(logfile,"w",stderr);
@@ -149,8 +163,6 @@ if (strcmp(format_name, "rwg")==0) {
 	fprintf(stderr, "Format %s is not recognized.", format_name);
 	exit(2);
 }
-
-makedir(logdir);
 
 fprintf(stderr,"***** This is UCVM-mpi\n");
 fprintf(stderr,"      Running on node= %s core=%d rank= %d\n\n",procname,sched_getcpu(), my_id);

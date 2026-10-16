@@ -78,10 +78,16 @@ gpu_arg = ""
 if use_gpu:
 	gpu_arg = "gpu"
 
+#AR: This used to only catch one kind of error, but when the setting it looks for is
+#AR: missing, the function it calls actually exits the whole program right away instead of
+#AR: raising that kind of error. That meant this safety check never worked. Any
+#AR: config file without that setting, which is the normal case in this workflow, silently
+#AR: killed the whole script right here, before it ever got to do its job. Now I catch
+#AR: the right kind of error so this case is handled properly instead of crashing.
 try:
 	local_db = config.getProperty('LOCAL_DB')
 	server = local_db
-except KeyError:
+except (KeyError, SystemExit):
 	pass
 
 cmd = "./get_modelbox.py %s %s %s %f %s %f %s %s %s %s" % (site, erfID, modelbox, spacing, server, rotation, padding, gpu_arg, bbox_arg, tight_arg)

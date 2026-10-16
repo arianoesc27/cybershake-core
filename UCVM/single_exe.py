@@ -93,20 +93,24 @@ log_root = config.getProperty("LOG_PATH")
 mpi_cmd = config.getProperty("MPI_CMD")
 job_id = config.getJobID()
 
-#if cca is one of the models, check to see if GTL is on
-with open('%s/UCVM/ucvm_22.7.0_withSFCVM/model/cca/data/config' % cs_path, 'r') as fp_in:
-	data = fp_in.readlines()
-	for line in data:
-		if line.find('gtl')>-1:
-			pieces = line.split('=')
-			if pieces[1].strip()=='off':
-				print("CCA: GTL is off.")
-			elif pieces[1].strip()=='on':
-				print("CCA: GTL is ON.")
-			else:
-				print("CCA: GTL status unknown.")
-			break
-	fp_in.close()
+#AR: (2026-08-13) This used to run always, even when cca isn't one of the
+#AR: requested models, and it hardcoded a specific bundled UCVM version path that doesn't
+#AR: exist here (BSC's UCVM is a separate, standalone install, not bundled inside CS_PATH).
+#AR: Only check CCA's GTL setting when cca is actually requested.
+if "cca" in models.split(","):
+	with open('%s/UCVM/ucvm_22.7.0_withSFCVM/model/cca/data/config' % cs_path, 'r') as fp_in:
+		data = fp_in.readlines()
+		for line in data:
+			if line.find('gtl')>-1:
+				pieces = line.split('=')
+				if pieces[1].strip()=='off':
+					print("CCA: GTL is off.")
+				elif pieces[1].strip()=='on':
+					print("CCA: GTL is ON.")
+				else:
+					print("CCA: GTL status unknown.")
+				break
+		fp_in.close()
 
 if option.min_vs is not None:
 	command = '%s/single_exe.csh %s %s %d %d %d %s %s %s %s %s %s %s %.1f %s %f %s %.01f' % (sys.path[0], site, modelcords, ns[0], ns[1], ns[2], cs_path, scratch_path, log_root, models, mpi_cmd, job_id, format, surface_cvm_depth, ely_taper, taper_depth, taper_models, option.min_vs)

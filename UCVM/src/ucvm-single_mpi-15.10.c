@@ -497,7 +497,7 @@ float LR_HR_VOXEL_HEIGHT = 100.0;
  }
 
  // Query by depth
- if (ucvm_setparam(UCVM_PARAM_QUERY_MODE, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
+ if (ucvm_setparam(UCVM_MODEL_PARAM_QUERY_MODE /* AR: renamed in UCVM API */, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
    fprintf(stderr, "Set query mode by depth failed.\n");
    fflush(stderr);
    exit(-2);

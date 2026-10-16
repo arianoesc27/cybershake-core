@@ -103,9 +103,31 @@ else if ($MPI_CMD == 'srun') then
 	echo "SLURM_JOB_NUM_NODES = $SLURM_JOB_NUM_NODES"
 	echo "SLURM_CPUS_ON_NODE = $SLURM_CPUS_ON_NODE"
 	@ NNODES = $SLURM_JOB_NUM_NODES
-	@ TASKS_PER_NODE = $SLURM_CPUS_ON_NODE
+	#AR: This used to always use the whole node's total CPU count (112 on MN5), ignoring
+	#AR: whatever number of tasks per node the job actually asked for. On MN5, trying to
+	#AR: run that many processes on one node at once crashes. Now, if the job specified how
+	#AR: many tasks per node it wants, I use that number instead, and only fall back to the
+	#AR: whole node's CPU count when nothing specific was requested.
+	if ($?SLURM_NTASKS_PER_NODE) then
+		@ TASKS_PER_NODE = $SLURM_NTASKS_PER_NODE
+	else
+		@ TASKS_PER_NODE = $SLURM_CPUS_ON_NODE
+	endif
 	@ NP = $NNODES * $TASKS_PER_NODE
 	set MPI_CMD = "${MPI_CMD} -N $NNODES -n $NP -c 1 --ntasks-per-node $TASKS_PER_NODE"
+	#AR: When this script runs inside the workflow's job, which asks for two different
+	#AR: kinds of nodes together (regular and GPU nodes), a plain srun call here fails,
+	#AR: since it needs to be told which group of nodes to actually use. I first tried
+	#AR: reading that group number from a SLURM variable directly, but that did not work,
+	#AR: since the worker process running this script does not receive that variable the
+	#AR: same way a normal job script would. Instead, I set my own variable
+	#AR: (UCVM_MESH_HET_GROUP) explicitly from the Python code that calls this script,
+	#AR: since it controls the environment directly there, so this doesn't depend on
+	#AR: guessing what gets passed through. This variable stays unset for the standalone
+	#AR: test script, so it isn't affected.
+	if ($?UCVM_MESH_HET_GROUP) then
+		set MPI_CMD = "${MPI_CMD} --het-group=${UCVM_MESH_HET_GROUP}"
+	endif
 endif
 
 #set VPMIN = 1700.0
@@ -115,16 +137,30 @@ endif
 #Add to LD_LIBRARY_PATH
 #setenv LD_LIBRARY_PATH /work/00940/tera3d/CyberShake/software/UCVM/ucvm_12.2.0/lib:/work/00940/tera3d/CyberShake/software/UCVM/cvmh_11.9.1/lib:/work/00940/tera3d/CyberShake/software/UCVM/cvms/lib:/work/00940/tera3d/CyberShake/software/UCVM/euclid3-1.3/libsrc:/work/00940/tera3d/CyberShake/software/UCVM/proj_4.7.0/lib
 
-set UCVM_HOME = /lustre/orion/proj-shared/geo156/CyberShake/software/UCVM/ucvm_22.7.0_withSFCVM
-setenv LD_LIBRARY_PATH ${UCVM_HOME}/lib/euclid3/lib:${UCVM_HOME}/lib/proj-5/lib:${UCVM_HOME}/model/cvmsi/lib:${UCVM_HOME}/model/cca/lib:${UCVM_HOME}/model/cencal/lib:$LD_LIBRARY_PATH
-setenv PROJ_LIB /lustre/orion/proj-shared/geo156/CyberShake/software/UCVM/ucvm_22.7.0_withSFCVM/lib/proj/share/proj
+#AR: This used to point at a different cluster's UCVM install. I point it at my own UCVM
+#AR: install on MN5 instead.
+set UCVM_HOME = /gpfs/projects/bsc115/bsc203748/software/ucvm/install
+#AR: One of the models (cvmsi) reads this specific variable itself to find its own data
+#AR: files, it doesn't use the other UCVM config variable for that. Without setting it,
+#AR: cvmsi builds the wrong path to its data and fails to start.
+setenv UCVM_INSTALL_PATH ${UCVM_HOME}
+#AR: This shell gives an error if LD_LIBRARY_PATH was never set at all, for example when
+#AR: modules weren't loaded first. I start it as empty text in that case instead of
+#AR: crashing.
+if (! $?LD_LIBRARY_PATH) setenv LD_LIBRARY_PATH ""
+#AR: (2026-10-07) hdf5 and tiff added. The sfcvm model library needs UCVM's own libhdf5, and
+#AR: without it here the mesher only started when the caller happened to have that path set.
+setenv LD_LIBRARY_PATH ${UCVM_HOME}/lib/euclid3/lib:${UCVM_HOME}/lib/proj/lib:${UCVM_HOME}/lib/hdf5/lib:${UCVM_HOME}/lib/tiff/lib:${UCVM_HOME}/model/cvms/lib:${UCVM_HOME}/model/cvmsi/lib:${UCVM_HOME}/model/cvmh/lib:${UCVM_HOME}/model/sfcvm/lib:$LD_LIBRARY_PATH
+setenv PROJ_LIB ${UCVM_HOME}/lib/proj/share/proj
+#AR: The program that reads the velocity model needs this variable set, pointing at my
+#AR: config file, the same as the other tools in this project that use UCVM.
+setenv UCVM_CONF_FILE ${UCVM_HOME}/conf/ucvm.conf
 
-#source /lustre/atlas/proj-shared/geo112/CyberShake/software/UCVM/ucvm-18.5.0/setup.csh
 echo $LD_LIBRARY_PATH
 #ldd ${BPATH}/${BPROG}
 
-#On Summit, must unload darshan-runtime module or will hang on MPI_Finalize
-module unload darshan-runtime
+#AR: I removed a module load that only existed on a different cluster and doesn't exist on
+#AR: MN5. It isn't needed here anyway.
 
 if (${ELY_TAPER} == "none") then
 	#Omit the rest of the taper arguments
