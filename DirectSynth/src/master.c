@@ -172,6 +172,15 @@ void master_listen(int* task_tuples, int num_ruptures, char* site, int run_id, i
 					sprintf(filename, "PeriodDuration_%s_%d_%d_%d.dur", site, run_id, df.src_id, df.rup_id);
                     fsync_and_close(filename);
 				}
+				//AR: (2026-10-12) The vertical response file was the only output not synced and
+				//AR: closed here, so a rupture went into the checkpoint log while its VerticalRSP
+				//AR: data could still be in the stdio buffer. When the job then died, those
+				//AR: files stayed empty, and a resumed run reused them as finished (Iceland
+				//AR: SS_98, jobs 47192424 and 47192921, 3 of 7 ruptures with 0 byte files).
+				if (run_vert_rsp) {
+					sprintf(filename, "VerticalRSP_%s_%d_%d_%d.rsp", site, run_id, df.src_id, df.rup_id);
+					fsync_and_close(filename);
+				}
 				fprintf(checkpoint_fp, "%d %d\n", df.src_id, df.rup_id);
 				fflush(checkpoint_fp);
 			}
