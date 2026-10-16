@@ -1,5 +1,10 @@
 #define BLOCK_SIZE_X 2
 #define BLOCK_SIZE_Y 2
+/* AR: Pass -DBLOCK_SIZE_Z_OVERRIDE=N at compile time to select value for target GPU.
+   MN5 H100: use 200 (set in Makefile.bsc-mn5). Upstream default: 252. */
+#ifdef BLOCK_SIZE_Z_OVERRIDE
+#define BLOCK_SIZE_Z BLOCK_SIZE_Z_OVERRIDE
+#else
 //#define BLOCK_SIZE_Z 256
 //#define BLOCK_SIZE_Z 200
 //#define BLOCK_SIZE_Z 288
@@ -7,6 +12,7 @@
 //#define BLOCK_SIZE_Z 250
 //#define BLOCK_SIZE_Z 320
 //#define BLOCK_SIZE_Z 400
+#endif
 #define align 32
 #define loop  1 
 

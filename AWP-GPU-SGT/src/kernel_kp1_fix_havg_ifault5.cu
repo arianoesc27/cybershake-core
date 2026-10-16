@@ -17,8 +17,13 @@ __constant__ int   d_slice_2;
 __constant__ int   d_yline_1;
 __constant__ int   d_yline_2;
 
+/* AR: CUDA texture memory API was deprecated in CUDA 12.x (MN5 uses CUDA 12.1).
+ * AR: When CUDA_USE_TEXTURE is NOT defined (MN5 default), direct array access is used.
+ * AR: Systems with older CUDA can compile with -DCUDA_USE_TEXTURE to keep original path. */
+#ifdef CUDA_USE_TEXTURE
 texture<float, 1, cudaReadModeElementType> p_vx1;
 texture<float, 1, cudaReadModeElementType> p_vx2;
+#endif
 
 extern "C"
 void SetDeviceConstValue(float DH, float DT, int nxt, int nyt, int nzt)
@@ -52,12 +57,15 @@ void SetDeviceConstValue(float DH, float DT, int nxt, int nyt, int nzt)
     return;
 }
 
+/* AR: BindArrayToTexture/UnBindArrayFromTexture only exist when using texture memory path.
+ * AR: cudaThreadSynchronize is deprecated since CUDA 5.0; replaced by cudaDeviceSynchronize. */
+#ifdef CUDA_USE_TEXTURE
 extern "C"
 void BindArrayToTexture(float* vx1, float* vx2, int memsize)
 {
    cudaBindTexture(0, p_vx1,  vx1,  memsize);
    cudaBindTexture(0, p_vx2,  vx2,  memsize);
-   cudaThreadSynchronize ();
+   cudaDeviceSynchronize();
    return;
 }
 
@@ -68,6 +76,7 @@ void UnBindArrayFromTexture()
    cudaUnbindTexture(p_vx2);
    return;
 }
+#endif
 
 extern "C"
 void dvelcx_H(float* u1,    float* v1,    float* w1,    float* xx,  float* yy, float* zz, float* xy,      float* xz, float* yz,
@@ -120,24 +129,23 @@ void update_bound_y_H(float* u1,   float* v1, float* w1, float* f_u1,      float
      return;
 }
 
+/* AR: Extended dstrqc_H signature to pass vx1/vx2 arrays directly (MN5/CUDA 12.x path).
+ * AR: When CUDA_USE_TEXTURE is defined, arrays are fetched via texture cache (old path).
+ * AR: When not defined (MN5), arrays are passed as regular device pointers. */
 extern "C"
 void dstrqc_H(float* xx,       float* yy,     float* zz,    float* xy,    float* xz, float* yz,
               float* r1,       float* r2,     float* r3,    float* r4,    float* r5, float* r6,
               float* u1,       float* v1,     float* w1,    float* lam,   float* mu, float* qp,
-              float* qs,       float* dcrjx,  float* dcrjy, float* dcrjz, int nyt,   int nzt, 
-              cudaStream_t St, float* lam_mu, int NX,       int rankx,    int ranky, int  s_i,  
-              int e_i,         int s_j,       int e_j,      int rank)
+              float* qs,       float* dcrjx,  float* dcrjy, float* dcrjz, int nyt,   int nzt,
+              cudaStream_t St, float* lam_mu, int NX,       int rankx,    int ranky, int s_i,
+              int e_i,         int s_j,       int e_j,      float* p_vx1, float* p_vx2)
 {
     dim3 block (BLOCK_SIZE_Z, BLOCK_SIZE_Y, 1);
     dim3 grid ((nzt+BLOCK_SIZE_Z-1)/BLOCK_SIZE_Z, (e_j-s_j+1+BLOCK_SIZE_Y-1)/BLOCK_SIZE_Y,1);
     cudaFuncSetCacheConfig(dstrqc, cudaFuncCachePreferL1);
-    cudaError_t err = cudaGetLastError();
-    if(err != cudaSuccess) printf("CUDA KERNEL ERROR! rank=%d dstrqc, before kernel: %s\n",rank,cudaGetErrorString(err));
-    dstrqc<<<grid, block, 0, St>>>(xx,    yy,    zz,  xy,  xz, yz, r1, r2,    r3,    r4,    r5,     r6, 
-                                   u1,    v1,    w1,  lam, mu, qp, qs, dcrjx, dcrjy, dcrjz, lam_mu, NX, 
-                                   rankx, ranky, s_i, e_i, s_j);
-    err = cudaGetLastError();
-    if(err != cudaSuccess) printf("CUDA KERNEL ERROR! rank=%d dstrqc: %s\n",rank,cudaGetErrorString(err));
+    dstrqc<<<grid, block, 0, St>>>(xx,    yy,    zz,  xy,  xz, yz, r1, r2,    r3,    r4,    r5,     r6,
+                                   u1,    v1,    w1,  lam, mu, qp, qs, dcrjx, dcrjy, dcrjz, lam_mu, NX,
+                                   rankx, ranky, s_i, e_i, s_j, p_vx1, p_vx2);
     return;
 }
 
@@ -723,11 +731,15 @@ __global__ void ComputeSGT_cu(float* xx,   float* yy,    float* zz,    float* xy
 }
 
 
+/* AR: Added p_vx1/p_vx2 as explicit parameters to replace deprecated texture fetch.
+ * AR: When CUDA_USE_TEXTURE is defined, tex1Dfetch is used (original path).
+ * AR: When not defined (MN5/CUDA 12.x), direct array indexing is used instead. */
 __global__ void dstrqc(float* xx, float* yy,    float* zz,    float* xy,    float* xz,     float* yz,
                        float* r1, float* r2,    float* r3,    float* r4,    float* r5,     float* r6,
                        float* u1, float* v1,    float* w1,    float* lam,   float* mu,     float* qp,
-                       float* qs, float* dcrjx, float* dcrjy, float* dcrjz, float* lam_mu, int NX,    
-                       int rankx, int ranky,    int s_i,      int e_i,      int s_j)
+                       float* qs, float* dcrjx, float* dcrjy, float* dcrjz, float* lam_mu, int NX,
+                       int rankx, int ranky,    int s_i,      int e_i,      int s_j,
+                       float* p_vx1,            float* p_vx2)
 {
     register int   i,  j,  k,  g_i;
     register int   pos,     pos_ip1, pos_im2, pos_im1;
@@ -760,8 +772,14 @@ __global__ void dstrqc(float* xx, float* yy,    float* zz,    float* xy,    floa
     f_dcrjy = dcrjy[j];
     for(i=e_i;i>=s_i;i--)
     {
+        /* AR: tex1Dfetch is deprecated in CUDA 12, so on MN5 I read the array directly. */
+#ifdef CUDA_USE_TEXTURE
         f_vx1    = tex1Dfetch(p_vx1, pos);
         f_vx2    = tex1Dfetch(p_vx2, pos);
+#else
+        f_vx1    = p_vx1[pos];
+        f_vx2    = p_vx2[pos];
+#endif
         f_dcrj   = dcrjx[i]*f_dcrjy*f_dcrjz;
 
         pos_km2  = pos-2;

@@ -18,19 +18,23 @@
 const double   micro = 1.0e-6;
 
 void SetDeviceConstValue(float DH, float DT, int nxt, int nyt, int nzt);
+/* AR: The CUDA texture memory API is deprecated in CUDA 12 (MN5 has 12.1.1), so I put it behind CUDA_USE_TEXTURE. */
+#ifdef CUDA_USE_TEXTURE
 void BindArrayToTexture(float* vx1, float* vx2, int memsize);
 void UnBindArrayFromTexture();
+#endif
 void dvelcx_H(float* u1,    float* v1,    float* w1,    float* xx,  float* yy, float* zz, float* xy,       float* xz, float* yz,
               float* dcrjx, float* dcrjy, float* dcrjz, float* d_1, int nyt,   int nzt,   cudaStream_t St, int s_i,   int e_i, int rank);
 void dvelcy_H(float* u1,       float* v1,    float* w1,    float* xx,  float* yy, float* zz, float* xy,   float* xz,   float* yz,
               float* dcrjx,    float* dcrjy, float* dcrjz, float* d_1, int nxt,   int nzt,   float* s_u1, float* s_v1, float* s_w1,
               cudaStream_t St, int s_j,      int e_j,      int rank,   int rank_me);
+/* AR: I added p_vx1 and p_vx2 to dstrqc_H. They replace the texture fetch that CUDA 12 no longer has. */
 void dstrqc_H(float* xx,       float* yy,     float* zz,    float* xy,    float* xz, float* yz,
               float* r1,       float* r2,     float* r3,    float* r4,    float* r5, float* r6,
               float* u1,       float* v1,     float* w1,    float* lam,   float* mu, float* qp,
-              float* qs,       float* dcrjx,  float* dcrjy, float* dcrjz, int nyt,   int nzt, 
-              cudaStream_t St, float* lam_mu, int NX,       int rankx,    int ranky, int s_i,  
-              int e_i,         int s_j,       int e_j,      int rank);
+              float* qs,       float* dcrjx,  float* dcrjy, float* dcrjz, int nyt,   int nzt,
+              cudaStream_t St, float* lam_mu, int NX,       int rankx,    int ranky, int s_i,
+              int e_i,         int s_j,       int e_j,      float* p_vx1, float* p_vx2);
 void addsrc_H(int i,      int READ_STEP, int dim,    int* psrc,  int npsrc,  cudaStream_t St,
               int igreen, int nzt, 
               float* d1,     float* u1,  float* v1,  float* w1,
@@ -38,8 +42,13 @@ void addsrc_H(int i,      int READ_STEP, int dim,    int* psrc,  int npsrc,  cud
               float* xx,  float* yy,     float* zz,  float* xy,  float* yz,  float* xz);
 void ComputeSGT(float* xx,   float* yy,        float* zz,    float* xy,    float* xz,     float* yz,
 //                float* sgt1, float* sgt2,      float* sgt3,  float* sgt4,  float* sgt5,   float* sgt6,
-                float* sg1,  float* sg2,       float* mu,    int sgt_numsta, int* sgt_sta,float* sgtBuf,     
+                float* sg1,  float* sg2,       float* mu,    int sgt_numsta, int* sgt_sta,float* sgtBuf,
                 cudaStream_t St,  int nzt,     int SGT_BLOCK_SIZE, int SGT_NUMBLOCKS, float* qs, float* d1);
+/* AR: addkinsrc_H defined in kernel.cu (CUDA); forward declaration required for C compiler */
+void addkinsrc_H(int i,   int dim,    int* psrc,  int npsrc,  cudaStream_t St, float* mu,
+              float* axx, float* ayy,    float* azz, float* axz, float* ayz, float* axy,
+              float* xx,  float* yy,     float* zz,  float* xy,  float* yz,  float* xz,
+              float* mom);
 
 void calcRecordingPoints(int *rec_nbgx, int *rec_nedx, 
   int *rec_nbgy, int *rec_nedy, int *rec_nbgz, int *rec_nedz, 
@@ -291,8 +300,14 @@ int main(int argc,char **argv)
     }    
 
     // Below 2 lines are only for HPGPU4 machine!
-//    rank_gpu = rank%4;
-    rank_gpu = 0;
+    // AR: (2026-07-06) The "rank_gpu = 0" override above pins EVERY MPI rank on a node to
+    // AR: GPU 0, so with CYBERSHAKE_PMCL3D_PPN=4 (an MN5 ACC node has 4 H100) all 4 ranks
+    // AR: on a node fight over a single GPU instead of using the other 3. This is the actual
+    // AR: cause of AWP-GPU running much slower on MN5 than on other installs. MN5 ACC nodes
+    // AR: always have exactly 4 GPUs/node (fixed hardware, matches CYBERSHAKE_PMCL3D_PPN=4 in
+    // AR: the workflow), so restoring rank%4 (round-robin GPU assignment, matching a known-fast
+    // AR: reference install) is hardcoded rather than plumbed through as a new CLI/env param.
+    rank_gpu = rank%4;
     cudaSetDevice(rank_gpu);
 
 printf("\n\nrank=%d) RS=%d, RSG=%d, NST=%d, IF=%d\n\n\n", 
@@ -660,7 +675,10 @@ rank, READ_STEP, READ_STEP_GPU, NST, IFAULT);
     cudaMalloc((void**)&d_vx2, num_bytes);
     cudaMemset(d_vx2, 0, num_bytes);
     cudaMemcpy(d_vx2,&vx2[0][0][0],num_bytes,cudaMemcpyHostToDevice);
+/* AR: BindArrayToTexture only used when CUDA texture API is available (pre-12.x) */
+#ifdef CUDA_USE_TEXTURE
     BindArrayToTexture(d_vx1, d_vx2, num_bytes);
+#endif
     if(NPC==0)
     {
     	num_bytes = sizeof(float)*(nxt+4+8*loop);
@@ -854,7 +872,7 @@ rank, READ_STEP, READ_STEP_GPU, NST, IFAULT);
                   d_d1, nxt,  nzt,  d_b_u1, d_b_v1, d_b_w1, stream_i,   ybs,  ybe, y_rank_B, rank);
          Cpy2Host_VY(d_f_u1, d_f_v1, d_f_w1,  SF_vel, nxt, nzt, stream_i, y_rank_F);
          Cpy2Host_VY(d_b_u1, d_b_v1, d_b_w1,  SB_vel, nxt, nzt, stream_i, y_rank_B);
-         cudaThreadSynchronize();
+         cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
          //velocity communication in y direction
          PostSendMsg_Y(SF_vel, SB_vel, MCW, request_y, &count_y, msg_v_size_y, y_rank_F, y_rank_B, rank, Both);
          MPI_Waitall(count_y, request_y, status_y);
@@ -865,15 +883,16 @@ rank, READ_STEP, READ_STEP_GPU, NST, IFAULT);
                   d_d1, nyt,  nzt,  stream_i,   xvs,  xve, rank);
          Cpy2Host_VX(d_u1, d_v1, d_w1, SL_vel, nxt, nyt, nzt, stream_i, x_rank_L, Left);
          Cpy2Host_VX(d_u1, d_v1, d_w1, SR_vel, nxt, nyt, nzt, stream_i, x_rank_R, Right);
-	 cudaThreadSynchronize();
+	 cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
          //velocity communication in x direction
 	 PostSendMsg_X(SL_vel, SR_vel, MCW, request_x, &count_x, msg_v_size_x, x_rank_L, x_rank_R, rank, Both);
 	 MPI_Waitall(count_x, request_x, status_x);
          Cpy2Device_VX(d_u1, d_v1, d_w1, RL_vel, RR_vel, nxt, nyt, nzt, stream_i, stream_i, x_rank_L, x_rank_R);
 	 //stress computation whole 3D Grid (nxt+4, nyt+4, nzt)
+         /* AR: I pass d_vx1 and d_vx2 directly, instead of the texture fetch that CUDA 12 no longer has. */
          dstrqc_H(d_xx, d_yy, d_zz, d_xy,    d_xz,    d_yz,    d_r1, d_r2, d_r3,     d_r4,     d_r5, d_r6,     d_u1, d_v1, d_w1, d_lam,
                   d_mu, d_qp, d_qs, d_dcrjx, d_dcrjy, d_dcrjz, nyt,  nzt,  stream_i, d_lam_mu, NX,   coord[0], coord[1],   xls,  xre,
-                  yls,  yre, rank);
+                  yls,  yre, d_vx1, d_vx2);
          //update source input
         //**Below was added in 2021 as part of BBP verification work**
 		if (IFAULT==5) {
@@ -906,7 +925,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
             ComputeSGT(d_xx,          d_yy,      d_zz,   d_xy,      d_xz,         d_yz,
                        d_sg1,         d_sg2,     d_mu,   sgt_numsta, d_sgt_sta, d_sgtBuf,
                        stream_i,      nzt,       SGT_BLOCK_SIZE,    SGT_NUMBLOCKS, d_qs, d_d1);
-            cudaThreadSynchronize();
+            cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
             cerr = cudaGetLastError();
             if(cerr!=cudaSuccess) printf("CUDA ERROR! rank=%d after threadSync: %s\n",rank,cudaGetErrorString(cerr));
             num_bytes = sizeof(float)*sgt_numsta*6;
@@ -958,7 +977,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
               printf("SGT rank=%d Output data written in (sec): %lf\n",rank,time_fileio);
             }
          }
-         cudaThreadSynchronize();
+         cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
  
          if(cur_step%NTISKP == 0){
           num_bytes = sizeof(float)*(nxt+4+8*loop)*(nyt+4+8*loop)*(nzt+2*align);
@@ -986,7 +1005,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
                 tmpInd++;
               }
           if((cur_step/NTISKP)%WRITE_STEP == 0){
-            cudaThreadSynchronize();
+            cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
             sprintf(filename, "%s%07ld", filenamebasex, cur_step);
             err = MPI_File_open(MCW,filename,MPI_MODE_CREATE|MPI_MODE_WRONLY,MPI_INFO_NULL,&fh);
 	    if (err!=MPI_SUCCESS) {
@@ -1021,7 +1040,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
             err = MPI_File_close(&fh);
           }
           //else 
-            //cudaThreadSynchronize();
+            //cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
           // write-statistics to chk file:
           if(rank==0){
             i = ND+2+4*loop;
@@ -1032,7 +1051,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
           }
          }
          //else
-          //cudaThreadSynchronize();
+          //cudaDeviceSynchronize(); /* AR: cudaThreadSynchronize deprecated since CUDA 5.0 */
 
           /*
           if((cur_step<NST) && (cur_step%25==0) && (rank==srcproc)){
@@ -1067,11 +1086,12 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
          MPI_Waitall(count_y, request_y, status_y);
          Cpy2Device_VY(d_u1,     d_v1,     d_w1,     d_f_u1, d_f_v1, d_f_w1, d_b_u1, d_b_v1, d_b_w1, RF_vel, RB_vel, nxt, nyt, nzt,
                        stream_1, stream_2, y_rank_F, y_rank_B, rank);
-         cudaThreadSynchronize();
+         cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
          //start stress computation in insider part
+         // AR: I pass d_vx1 and d_vx2 directly, instead of the texture fetch that CUDA 12 no longer has.
          dstrqc_H(d_xx, d_yy, d_zz, d_xy,    d_xz,    d_yz,    d_r1, d_r2, d_r3,     d_r4,     d_r5, d_r6,     d_u1, d_v1, d_w1, d_lam,
                   d_mu, d_qp, d_qs, d_dcrjx, d_dcrjy, d_dcrjz, nyt,  nzt,  stream_i, d_lam_mu, NX,   coord[0], coord[1],   xss2, xse2,
-                  yls,  yre, rank);
+                  yls,  yre, d_vx1, d_vx2);
          Cpy2Host_VX(d_u1, d_v1, d_w1, SL_vel, nxt, nyt, nzt, stream_1, x_rank_L, Left);
          Cpy2Host_VX(d_u1, d_v1, d_w1, SR_vel, nxt, nyt, nzt, stream_2, x_rank_R, Right);
          //MPI overlapping stress computation
@@ -1082,19 +1102,20 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
          MPI_Waitall(count_x, request_x, status_x);
          Cpy2Device_VX(d_u1, d_v1, d_w1, RL_vel, RR_vel, nxt, nyt, nzt, stream_1, stream_2, x_rank_L, x_rank_R);
 	 //stress computation in ghost cells
+         // AR: I pass d_vx1 and d_vx2 directly, instead of the texture fetch that CUDA 12 no longer has.
          dstrqc_H(d_xx, d_yy, d_zz, d_xy,    d_xz,    d_yz,    d_r1, d_r2, d_r3,     d_r4,     d_r5, d_r6,     d_u1, d_v1, d_w1, d_lam,
                   d_mu, d_qp, d_qs, d_dcrjx, d_dcrjy, d_dcrjz, nyt,  nzt,  stream_1, d_lam_mu, NX,   coord[0], coord[1],   xss1, xse1,
-		  yls,  yre, rank);
+		  yls,  yre, d_vx1, d_vx2);
          dstrqc_H(d_xx, d_yy, d_zz, d_xy,    d_xz,    d_yz,    d_r1, d_r2, d_r3,     d_r4,     d_r5, d_r6,     d_u1, d_v1, d_w1, d_lam,
                   d_mu, d_qp, d_qs, d_dcrjx, d_dcrjy, d_dcrjz, nyt,  nzt,  stream_2, d_lam_mu, NX,   coord[0], coord[1],   xss3, xse3,
-                  yls,  yre, rank);
+                  yls,  yre, d_vx1, d_vx2);
          if((IGREEN != -1) && (cur_step%NTISKP_SGT==0) && (sgtproc == rank))
-         { 
+         {
             ComputeSGT(d_xx,          d_yy,      d_zz,   d_xy,      d_xz,         d_yz,
 //                       d_sgt1,        d_sgt2,    d_sgt3, d_sgt4,    d_sgt5,       d_sgt6,
                        d_sg1,         d_sg2,     d_mu,   sgt_numsta, d_sgt_sta, d_sgtBuf,
                        stream_i,      nzt,       SGT_BLOCK_SIZE,    SGT_NUMBLOCKS);
-            cudaThreadSynchronize();
+            cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
             //num_bytes = sizeof(float)*(nxt+4+8*loop)*(nyt+4+8*loop)*(nzt+2*align);
             num_bytes = sizeof(float)*sgt_numsta*6;
             idtmp = (cur_step/NTISKP_SGT-1)%WRITE_STEP;
@@ -1110,8 +1131,8 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
               err = MPI_File_close(&fh);
             }
          }
-         else cudaThreadSynchronize();
-         
+         else cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
+
          if(cur_step%NTISKP == 0){
           num_bytes = sizeof(float)*(nxt+4+8*loop)*(nyt+4+8*loop)*(nzt+2*align);
           cudaMemcpy(&u1[0][0][0],d_u1,num_bytes,cudaMemcpyDeviceToHost);
@@ -1135,7 +1156,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
                 tmpInd++;
               }
           if((cur_step/NTISKP)%WRITE_STEP == 0){
-            cudaThreadSynchronize();
+            cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
             //printf("I'm %d, my disp=%ld\n", rank, displacement);
             sprintf(filename, "%s%07ld", filenamebasex, cur_step);
             err = MPI_File_open(MCW,filename,MPI_MODE_CREATE|MPI_MODE_WRONLY,MPI_INFO_NULL,&fh);
@@ -1154,7 +1175,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
             err = MPI_File_close(&fh);
           }
           else
-            cudaThreadSynchronize();
+            cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
           if(rank==0){
             i = ND+2+4*loop;
             j = i;
@@ -1164,7 +1185,7 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
           }
          }
          else
-           cudaThreadSynchronize();
+           cudaDeviceSynchronize(); // AR: cudaThreadSynchronize deprecated since CUDA 5.0
 
        }*/
        time_un += gethrtime();
@@ -1207,7 +1228,10 @@ printf("xx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%f\naxx,yy,zz,xy,xz,yz=%f,%f,%f,%f,%f,%
 //  Main Loop Ends
  
 //  program ends, free all memories
+/* AR: UnBindArrayFromTexture only used when CUDA texture API is available (pre-12.x) */
+#ifdef CUDA_USE_TEXTURE
     UnBindArrayFromTexture();
+#endif
     Delloc3D(u1);
     Delloc3D(v1);
     Delloc3D(w1); 
