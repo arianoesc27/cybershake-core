@@ -59,7 +59,14 @@
 
 #define MAXLINE		5120	/* max length of line in par file */
 #define MAXNAME		256	/* max length of name */
-#define MAXVALUE	5120	/* max length of value */
+/* #AR: (2026-10-01) Raised from 5120 to 65536. A value longer than this overflows the buffer it
+ * #AR: is copied into and the program crashes (hf_synth_bbp died with signal 11 on PAS).
+ * #AR: The longest value we pass is hf_synth_bbp's rup_vars, one entry per rupture variation,
+ * #AR: like (123,123,0,-1,1084256900); which is about 24 characters, ten of them the seed.
+ * #AR: A rupture with 360 variations (PAS) gives about 9100 characters, more than 5120. With
+ * #AR: 65536 there is room for about 65536 / 24 = 2700 variations, far above any rupture seen
+ * #AR: so far (208 in TEST, 360 in PAS). It is only stack memory, 64 KB per buffer. */
+#define MAXVALUE	65536	/* max length of value */
 #define MAXFILENAME	256	/* max length of par file name */
 #define MAXVECTOR	20	/* max # of elements for unspecified vectors */
 #define GETPAR_ERROR	100	/* exit status for getpar error */
