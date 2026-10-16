@@ -9,7 +9,10 @@ int ifless_taper = 0;
 double taper_depth = 700.0;
 int ely_init = 0;
 
-const float MIN_VS = 500.0;
+//AR: (2026-10-14) No longer const. It is the minimum Vs the AWP mesh applies, and VsD5H has to
+//AR: use the same one to describe what the mesh sees. 500 by default, as before, and an optional
+//AR: last argument sets another value when the mesh was built with another minimum.
+float MIN_VS = 500.0;
 
 void initialize_ucvm(char* model) {
 	printf("Initializing UCVM.\n");
@@ -17,7 +20,14 @@ void initialize_ucvm(char* model) {
 		printf("UCVM already initialized.\n");
 		return;
 	}
-	if (ucvm_init("/work2/00349/scottcal/frontera/CyberShake/software/UCVM/ucvm_23.4.0_withSFCVM/conf/ucvm.conf")!=UCVM_CODE_SUCCESS) {
+	/* AR: I read the UCVM_CONF_FILE environment variable, because the conf path changes from one system to another. Set it before running.
+	   Same fix as LF_Site_Response/src/retrieve_vs.c, this copy was never patched. */
+	const char* ucvm_conf = getenv("UCVM_CONF_FILE");
+	if (ucvm_conf == NULL) {
+		fprintf(stderr, "Error: UCVM_CONF_FILE environment variable not set, aborting.\n");
+		exit(3);
+	}
+	if (ucvm_init(ucvm_conf)!=UCVM_CODE_SUCCESS) {
 		fprintf(stderr, "Failed to init UCVM, aborting.");
         exit(3);
     }
@@ -330,7 +340,7 @@ float ucvm_vsD(float lon, float lat, char* model, int depth, int taper_flag) {
 //So VsD500 = 5/(0.5/Vs(Z=0) + 1/Vs(Z=100) + ... + 1/Vs(Z=400) + 0.5/Vs(Z=500))
 int main(int argc, char** argv) {
 	if (argc<7) {
-		printf("Usage: %s <lon> <lat> <model> <gridspacing (m)> <depth to query for surface mesh point (m)> <out filename> [comma-separated taper string]\n", argv[0]);
+		printf("Usage: %s <lon> <lat> <model> <gridspacing (m)> <depth to query for surface mesh point (m)> <out filename> [comma-separated taper string, or - for none] [minimum Vs (m/s)]\n", argv[0]);
 		return 1;
 	}
 	float lon = atof(argv[1]);
@@ -344,12 +354,18 @@ int main(int argc, char** argv) {
 	
     char* taper_models = NULL;
     int taper_flag = 0;
-    if (argc>7) {
+    //AR: (2026-10-14) "-" means no taper, so that the minimum Vs can be given without one.
+    if (argc>7 && strcmp(argv[7], "-")!=0) {
         taper_models = argv[7];
         //Since all the queries are for a single point, determine if this point is using a model that requires the taper
         taper_flag = test_for_taper(lon, lat, taper_models);
         printf("Taper flag = %d.\n", taper_flag);
     }
+
+	if (argc>8) {
+		MIN_VS = atof(argv[8]);
+		printf("Minimum Vs = %f.\n", MIN_VS);
+	}
 
 	float vs30 = ucvm_vsD(lon, lat, model, 30, taper_flag);
 	float vs5H = ucvm_vsD(lon, lat, model, 5*gridspacing, taper_flag);

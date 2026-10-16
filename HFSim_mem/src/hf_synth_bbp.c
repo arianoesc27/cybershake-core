@@ -113,6 +113,45 @@ int main(int argc, char** argv) {
 	int srf_seed;
 	int rvfrac_seed = 0;
 
+	/* AR: Region portability (2026-07-21), group 3. qfexp used to be fixed below
+	 * (sfile.qfexp = 0.6, "the default for LA Basin"), and risetime_coef, stress_average,
+	 * mean_rvfac and range_rvfac had no way to change the fixed constants of the GP method.
+	 * -1 means "not given" for the last 3 (0 is a valid value for range_rvfac, so I use a
+	 * negative one). When they are not given, genslip's default applies (risetime_coef=1.6,
+	 * which I checked in the code that genslip-v5.5.2.c runs, not in its old comments), or the
+	 * fixed defaults of hfsim() (stress_average=50.0, mean_rvfac=0.775, range_rvfac=0.1). */
+	float qfexp = 0.6;
+	float risetime_coef = -1;
+	float stress_average = -1;
+	float mean_rvfac = -1;
+	float range_rvfac = -1;
+
+	/* AR: Region-portability (2026-07-22), Group 4. akapp(kappa)/ispar_adjust/spar_exp/
+	 * ipdur_model/shal_rvfac/deep_rvfac used to be 100% hardcoded inside cs_params()'s Fortran
+	 * COMMON block (bbp/src/gp/StochSim/V6.0/hb_high_v6.1.1_sub.f, in my bsc-mn5 fork of BBP
+	 * and NOT copied in this repo), which was called with no arguments. -1 means "not given"
+	 * for all 6, since valid values are always >=0, the same convention as the rest. */
+	float kappa = -1;
+	int ispar_adjust = -1;
+	float spar_exp = -1;
+	int ipdur_model = -1;
+	float shal_rvfac = -1;
+	float deep_rvfac = -1;
+
+	/* AR: Region portability (2026-07-22), group 5. The second wcc_siteamp14 call in
+	 * hfsim_bbp.c (separate from get_sitefacs/siteamp inside hb_high_) had model='bssa2014',
+	 * flowcap, fmin, fmidbot, fhightop and fmax written in. They now use the same
+	 * compute.steps.stochastic.* keys that group 2 already has for the wcc_siteamp14 call in
+	 * lf_site_response_bbp.c, since they mean the same thing. vref and vpga for that call were
+	 * ALSO fixed to 500.0, even though this function already receives vref and vpga (group 1).
+	 * Now I pass them through instead of ignoring them. */
+	char site_response_module[128] = "bssa2014";
+	float flowcap = -1;
+	float fmin = -1;
+	float fmidbot = -1;
+	float fhightop = -1;
+	float fmax = -1;
+
 	param_string = check_malloc(sizeof(char*) * MAX_PARAMS);
 	for (i=0; i<MAX_PARAMS; i++) {
 		param_string[i] = check_malloc(sizeof(char) * MAX_PARAM_LENGTH);
@@ -155,6 +194,23 @@ int main(int argc, char** argv) {
 	getpar("target_dy", "f", &target_dy);
 	//If we're specifying rvfrac and seed
 	getpar("rvfrac_seed_given", "d", &rvfrac_seed);
+	getpar("qfexp", "f", &qfexp);
+	getpar("risetime_coef", "f", &risetime_coef);
+	getpar("stress_average", "f", &stress_average);
+	getpar("mean_rvfac", "f", &mean_rvfac);
+	getpar("range_rvfac", "f", &range_rvfac);
+	getpar("kappa", "f", &kappa);
+	getpar("ispar_adjust", "d", &ispar_adjust);
+	getpar("spar_exp", "f", &spar_exp);
+	getpar("ipdur_model", "d", &ipdur_model);
+	getpar("shal_rvfac", "f", &shal_rvfac);
+	getpar("deep_rvfac", "f", &deep_rvfac);
+	getpar("module", "s", site_response_module);
+	getpar("flowcap", "f", &flowcap);
+	getpar("fmin", "f", &fmin);
+	getpar("fmidbot", "f", &fmidbot);
+	getpar("fhightop", "f", &fhightop);
+	getpar("fmax", "f", &fmax);
 
 	//If vs30 is not given, then use UCVM to determine it
 	if (vs30==-1.0) {
@@ -193,7 +249,9 @@ int main(int argc, char** argv) {
 					exit(3);
 				}
 				rg_stats_t stats;
+#ifndef BSC_DISABLE_MEMCACHED
 				set_memcached_server("localhost");
+#endif
 				rupgen_get_num_rv(rup_geom_file, &stats, RUPGEN_UNIFORM_HYPO);
 				for (i=0; i<num_rup_vars; i++) {
 					rup_vars[i].rup_var_id = i;
@@ -202,7 +260,9 @@ int main(int argc, char** argv) {
 				}
 			} else {
 				parse_rup_vars(rup_var_string, num_rup_vars, rup_vars, rvfrac_seed);
+#ifndef BSC_DISABLE_MEMCACHED
 				set_memcached_server("localhost");
+#endif
 			}
 		}
 	} else if (infile[0]!='\0') {
@@ -261,6 +321,11 @@ int main(int argc, char** argv) {
 					float rvfrac = rup_vars[rv].rvfrac;
 					char params[256];
 					sprintf(params, "seed=%d rvfrac=%f use_unmodified_seed=1", seed, rvfrac);
+					if (risetime_coef > 0) {
+						char risetime_str[64];
+						sprintf(risetime_str, " risetime_coef=%f", risetime_coef);
+						strcat(params, risetime_str);
+					}
 					rupgen_genslip_with_params(rup_geom_file, rup_vars[rv].slip_id, rup_vars[rv].hypo_id, &stats, &srf, RUPGEN_UNIFORM_HYPO, 0.05, params);
 				} else {
 					//No seed/rvfrac passed
@@ -322,8 +387,9 @@ int main(int argc, char** argv) {
 		}
 		sprintf(slipfile, "%s.slip.postround", infile);
 		if (debug) write_slipfile(sfile, slipfile);
-		//This is the default for LA Basin; other velocity models might be different
-		sfile.qfexp = 0.6;
+		//AR: was hardcoded to 0.6 ("the default for LA Basin"); now getpar-exposed above,
+		//AR: defaulting to that exact same value.
+		sfile.qfexp = qfexp;
 
 		//Calculate the variation seed out here, since we have all the parameters
 		int variation_seed = 0;
@@ -339,7 +405,7 @@ int main(int argc, char** argv) {
 			variation_seed = srf_seed;
 		}
 
-		hfsim(seis, stat, slon, slat, local_vmod, fp_out, pga_fp_out, vs30, &header, modelrot, &sfile, num_comps, do_site_response, vref, vpga, variation_seed, rup_vars[rv].rvfrac, debug);
+		hfsim(seis, stat, slon, slat, local_vmod, fp_out, pga_fp_out, vs30, &header, modelrot, &sfile, num_comps, do_site_response, vref, vpga, variation_seed, rup_vars[rv].rvfrac, debug, stress_average, mean_rvfac, range_rvfac, kappa, ispar_adjust, spar_exp, ipdur_model, shal_rvfac, deep_rvfac, site_response_module, flowcap, fmin, fmidbot, fhightop, fmax);
 
 		free(sfile.sp);
        	free(sfile.tr);

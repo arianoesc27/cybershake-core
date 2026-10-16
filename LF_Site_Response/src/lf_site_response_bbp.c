@@ -28,6 +28,12 @@ int add_param(char** param_string, char* param) {
 }
 
 
+/* AR: Region-portability fix (2026-07-21). "module" was already read via getpar into
+ * site_response_module below, but the call that builds wcc_siteamp14_sub's param string never
+ * used it. It always sent model='bssa2014', so the getpar did nothing. I made it use the
+ * variable it reads. Also exposed 5 previously-hardcoded frequency-band edges
+ * (flowcap/fmin/fmidbot/fhightop/fmax) as new optional getpars, defaulting to the exact same
+ * values that used to be hardcoded literals, so an unset caller behaves byte-identically. */
 int main(int argc, char** argv) {
 	char seis_in_filename[256];
 	char seis_out_filename[256];
@@ -42,6 +48,11 @@ int main(int argc, char** argv) {
 	float vref = 865.0;
 	float vpga = vref;
 	float pga_param[2] = {-1, -1};
+	float flowcap = 0.0;
+	float fmin = 0.05;
+	float fmidbot = 0.1;
+	float fhightop = 20.0;
+	float fmax = 50.0;
 	FILE* fp_in, *hf_fp_in;
 
     char pstring[MAX_PARAM_LENGTH];
@@ -61,6 +72,11 @@ int main(int argc, char** argv) {
 	getpar("vs30_model", "s", vs30_model);
 	getpar("vref", "f", &vref);
 	getpar("vpga", "f", &vpga);
+	getpar("flowcap", "f", &flowcap);
+	getpar("fmin", "f", &fmin);
+	getpar("fmidbot", "f", &fmidbot);
+	getpar("fhightop", "f", &fhightop);
+	getpar("fmax", "f", &fmax);
 	//If this is supplied, don't run wcc_getpeak()
 	getpar("nspga", "f", &(pga_param[0]));
 	getpar("ewpga", "f", &(pga_param[1]));
@@ -153,12 +169,18 @@ int main(int argc, char** argv) {
             add_param(param_string, pstring);
             sprintf(pstring, "vpga=%f", vpga);
             add_param(param_string, pstring);
-            add_param(param_string, "model='bssa2014'");
-            add_param(param_string, "flowcap=0.0");
-            add_param(param_string, "fmax=50.0");
-            add_param(param_string, "fhightop=20.0");
-            add_param(param_string, "fmidbot=0.1");
-            add_param(param_string, "fmin=0.05");
+            sprintf(pstring, "model='%s'", site_response_module);
+            add_param(param_string, pstring);
+            sprintf(pstring, "flowcap=%f", flowcap);
+            add_param(param_string, pstring);
+            sprintf(pstring, "fmax=%f", fmax);
+            add_param(param_string, pstring);
+            sprintf(pstring, "fhightop=%f", fhightop);
+            add_param(param_string, pstring);
+            sprintf(pstring, "fmidbot=%f", fmidbot);
+            add_param(param_string, pstring);
+            sprintf(pstring, "fmin=%f", fmin);
+            add_param(param_string, pstring);
             sprintf(pstring, "pga=%f", pga);
             num_params = add_param(param_string, pstring);
             wcc_siteamp14(num_params, param_string, &(seis[i]), &sdata);

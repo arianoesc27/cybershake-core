@@ -8,7 +8,13 @@ const float MIN_VS = 500.0;
 
 void initialize_ucvm(char* model) {
 	printf("Initializing UCVM.\n");
-	if (ucvm_init("/gpfs/alpine/proj-shared/geo112/CyberShake/software/UCVM/ucvm-18.5.0_01302019/conf/ucvm.conf")!=UCVM_CODE_SUCCESS) {
+	/* AR: I read the UCVM_CONF_FILE environment variable, because the conf path changes from one system to another. Set it before running. */
+	const char* ucvm_conf = getenv("UCVM_CONF_FILE");
+	if (ucvm_conf == NULL) {
+		fprintf(stderr, "Error: UCVM_CONF_FILE environment variable not set, aborting.\n");
+		exit(3);
+	}
+	if (ucvm_init(ucvm_conf)!=UCVM_CODE_SUCCESS) {
 		fprintf(stderr, "Failed to init UCVM, aborting.");
         exit(3);
     }
@@ -39,7 +45,7 @@ void initialize_ucvm(char* model) {
                 exit(3);
             }
 
-            if (ucvm_setparam(UCVM_PARAM_QUERY_MODE, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
+            if (ucvm_setparam(UCVM_MODEL_PARAM_QUERY_MODE /* AR: renamed in UCVM API */, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
                 fprintf(stderr, "Set query mode by depth failed.\n");
                 exit(-2);
             }
@@ -74,7 +80,7 @@ void initialize_ucvm(char* model) {
 	            exit(3);
 	        }
 	
-	        if (ucvm_setparam(UCVM_PARAM_QUERY_MODE, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
+	        if (ucvm_setparam(UCVM_MODEL_PARAM_QUERY_MODE /* AR: renamed in UCVM API */, UCVM_COORD_GEO_DEPTH)!=UCVM_CODE_SUCCESS) {
 	        	fprintf(stderr, "Set query mode by depth failed.\n");
 	            exit(-2);
 	        }

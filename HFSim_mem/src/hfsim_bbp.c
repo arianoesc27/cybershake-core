@@ -14,14 +14,31 @@
 * a single seismogram file in GRM format.
 */
 
-extern void cs_params_();
+/* AR: Region portability (2026-07-22), group 4. cs_params_ now takes 6 optional values. I
+ * changed it in my bsc-mn5 fork of BBP (bbp/src/gp/StochSim/V6.0/hb_high_v6.1.1_sub.f),
+ * because the object file linked here is built from BBP's source and there is no copy in
+ * this repo. Fortran passes everything by reference, so all the arguments are pointers. */
+extern void cs_params_(float* akapp_ov, int* ispar_adjust_ov, float* spar_exp_ov,
+                        int* ipdur_model_ov, float* shal_rvfac_ov, float* deep_rvfac_ov);
 
 extern void hb_high_(char* stat, float* slon, float* slat, char* local_vmod, char* outfile, float* tlen, float* dt, float* seis, int* nseg, float* elon, float* elat, float* targ_mag, int* nlskip, int* nx, int* ny, float* dx, float* dy, float* strike, float* dip, float* ravg, float* dtop, float* shypo, float* dhypo, float* sp, float* tr, float* ti, float* qfexp, char* velfile, float* stress_average, float* rvfac, int* seed, int* msite, int stat_len, int local_vmod_len, int outfile_len, int velfile_len);
 
 float get_rvfac(double mean_rvfac, double range_rvfac, int seed) {
-	//char* filename = "/gpfs/alpine/proj-shared/geo112/CyberShake/software/bbp/bbp-19.8.0-python3/bbp/comps/hfsims_cfg.py";
-	char* filename = "/work2/00349/scottcal/frontera/CyberShake/software/bbp/bbp-22.4.0/bbp/comps/hfsims_cfg.py";
+	/* AR: I read the HFSIMS_CFG_PATH environment variable, because the path to BBP's
+	   hfsims_cfg.py changes from one system to another. Set it before running. It is the same
+	   fix as UCVM_CONF_FILE in retrieve_vs.c. The Frontera path written here
+	   (/work2/00349/scottcal/...) had never been changed, and I found out the hard way. fopen()
+	   returned NULL without a word and PyRun_SimpleFile(NULL, ...) crashed with a segfault. */
+	char* filename = getenv("HFSIMS_CFG_PATH");
+	if (filename == NULL) {
+		fprintf(stderr, "Error: HFSIMS_CFG_PATH environment variable not set, aborting.\n");
+		exit(3);
+	}
 	FILE* hfsims_cfg_fp = fopen(filename, "r");
+	if (hfsims_cfg_fp == NULL) {
+		fprintf(stderr, "Error: could not open HFSIMS_CFG_PATH='%s', aborting.\n", filename);
+		exit(3);
+	}
 	Py_Initialize();
 	PyRun_SimpleFile(hfsims_cfg_fp, filename);
 	PyObject* main_module = PyImport_AddModule("__main__");
@@ -75,7 +92,19 @@ void write_grm_head(FILE* fp_out, float** seis, struct seisheader* header, int n
     }
 }
 
-void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, FILE* output_fp, FILE* pga_output_fp, float vs30, struct seisheader* header, float modelrot, struct slipfile* sfile, int num_comps, int do_site_response, float vref, float vpga, int seed, float rvfrac, int debug) {
+/* AR: Region-portability fix (2026-07-21), Group 3. stress_average/mean_rvfac/range_rvfac used
+ * to be fixed local values below with no way to change them. The new last parameters use a
+ * negative value to mean "not given" (0 is a valid value for range_rvfac). When they are not
+ * given, the old fixed defaults of this function (50.0, 0.775, 0.1) apply as before. */
+/* AR: Region-portability (2026-07-22), Group 5. This function's own wcc_siteamp14 call below
+ * (the SECOND, independent HF site-amplification, separate from hb_high_'s own internal
+ * get_sitefacs/siteamp) had vref=500.0 and vpga=500.0 written in, and ignored the vref and
+ * vpga parameters this function ALREADY receives (group 1, from the same compute.steps.
+ * stochastic.vref/vpga keys that hf_synth and lf_site_response use). I also added
+ * site_response_module, flowcap, fmin, fmidbot, fhightop and fmax, with the same
+ * compute.steps.stochastic.* keys that group 2 already has for the wcc_siteamp14 call in
+ * lf_site_response_bbp.c, since they mean the same thing there and here. */
+void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, FILE* output_fp, FILE* pga_output_fp, float vs30, struct seisheader* header, float modelrot, struct slipfile* sfile, int num_comps, int do_site_response, float vref, float vpga, int seed, float rvfrac, int debug, float stress_average_override, float mean_rvfac_override, float range_rvfac_override, float akapp_override, int ispar_adjust_override, float spar_exp_override, int ipdur_model_override, float shal_rvfac_override, float deep_rvfac_override, char* site_response_module, float flowcap_override, float fmin_override, float fmidbot_override, float fhightop_override, float fmax_override) {
 	//parse cmd-line args
 	int stat_len;
 	int local_vmod_len;
@@ -86,7 +115,7 @@ void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, 
 	char** param_string;
 	//Must be provided
 	float targ_mag = -1;
-	float stress_average = 50.0;
+	float stress_average = (stress_average_override >= 0) ? stress_average_override : 50.0;
 	int msite = 1;
 
 	int nt = header->nt;
@@ -159,8 +188,8 @@ void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, 
 	if (rvfrac<=0) {
 		//double mean_rvfac = 0.8;
 		//double range_rvfac = 0.05;
-		double mean_rvfac = 0.775;
-		double range_rvfac = 0.1;
+		double mean_rvfac = (mean_rvfac_override >= 0) ? mean_rvfac_override : 0.775;
+		double range_rvfac = (range_rvfac_override >= 0) ? range_rvfac_override : 0.1;
 		sfile->rvfac = get_rvfac(mean_rvfac, range_rvfac, seed);
 	} else {
 		sfile->rvfac = rvfrac;
@@ -176,7 +205,8 @@ void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, 
 	//if (debug) printf("stat len=%d, local_vmod_len=%d, local_vmod=%s, output_len=%d, velfile_len=%d\n", stat_len, local_vmod_len, local_vmod, output_len, velfile_len);
 	//extern void hb_high_(char* stat, float* slon, float* slat, char* local_vmod, char* outfile, float* tlen, float* dt, float* seis, int* nseg, float* elon, float* elat, float* targ_mag, int* nx, int* ny, float* dx, float* dy, float* strike, float* dip, float* ravg, float* dtop, float* shypo, float* dhypo, float* sp, float* tr, float* ti, float* qfexp, float* stress_average, int* msite, int stat_len, int local_vmod_len, int outfile_len);
 	//Initializes a bunch of hb_high variables to their CyberShake values
-	cs_params_();
+	cs_params_(&akapp_override, &ispar_adjust_override, &spar_exp_override,
+	           &ipdur_model_override, &shal_rvfac_override, &deep_rvfac_override);
 	hb_high_(stat, &slon, &slat, local_vmod, output, &tlen, &dt, &(seis[0][0]), &(sfile->nseg), sfile->elon, sfile->elat, &targ_mag, &nlskip, sfile->nx, sfile->ny, sfile->dx, sfile->dy, sfile->strike, sfile->dip, sfile->ravg, sfile->dtop, sfile->shypo, sfile->dhypo, sfile->sp, sfile->tr, sfile->ti, &(sfile->qfexp), velfile, &stress_average, &(sfile->rvfac), &seed, &msite, stat_len, local_vmod_len, output_len, velfile_len);
 	if (debug) printf("hb_high completed.\n");
 
@@ -241,18 +271,24 @@ void hfsim(float** seisC, char* stat, float slon, float slat, char* local_vmod, 
 			float pga = wcc_getpeak(num_params, param_string, seisC[i], &head1)/981.0;
 			sprintf(pga_string, "%s%.6f ", pga_string, pga);
 			if (debug) printf("Calculating site amp with pga=%f, vs30=%f.\n", pga, vs30);
-			sprintf(pstring, "vref=%f", 500.0);
+			sprintf(pstring, "vref=%f", vref);
 			add_param_reset(param_string, pstring, 1);
 			sprintf(pstring, "vsite=%f", vs30);
 			add_param(param_string, pstring);
-			sprintf(pstring, "vpga=%f", 500.0);
+			sprintf(pstring, "vpga=%f", vpga);
 			add_param(param_string, pstring);
-			add_param(param_string, "model='bssa2014'");
-			add_param(param_string, "flowcap=0.0");
-			add_param(param_string, "fmax=50.0");
-			add_param(param_string, "fhightop=20.0");
-			add_param(param_string, "fmidbot=0.1");
-			add_param(param_string, "fmin=0.05");
+			sprintf(pstring, "model='%s'", site_response_module);
+			add_param(param_string, pstring);
+			sprintf(pstring, "flowcap=%f", (flowcap_override >= 0) ? flowcap_override : 0.0);
+			add_param(param_string, pstring);
+			sprintf(pstring, "fmax=%f", (fmax_override >= 0) ? fmax_override : 50.0);
+			add_param(param_string, pstring);
+			sprintf(pstring, "fhightop=%f", (fhightop_override >= 0) ? fhightop_override : 20.0);
+			add_param(param_string, pstring);
+			sprintf(pstring, "fmidbot=%f", (fmidbot_override >= 0) ? fmidbot_override : 0.1);
+			add_param(param_string, pstring);
+			sprintf(pstring, "fmin=%f", (fmin_override >= 0) ? fmin_override : 0.05);
+			add_param(param_string, pstring);
 			sprintf(pstring, "pga=%f", pga);
 			num_params = add_param(param_string, pstring);
 			int k;
